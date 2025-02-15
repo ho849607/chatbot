@@ -10,8 +10,9 @@ openai
 # 문서 처리
 docx2txt   # DOCX 텍스트 추출
 pdfplumber # PDF 텍스트 추출 (필요 시)
-pytesseract # 이미지 OCR (필요 시)
-paddleocr # 이미지 OCR 대안 (필요 시)
+python-pptx  # PPTX 처리
+pytesseract  # 이미지 OCR (필요 시)
+paddleocr    # 이미지 OCR 대안 (필요 시)
 
 # NLP
 nltk
