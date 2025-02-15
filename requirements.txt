@@ -1,2 +1,30 @@
+# Streamlit 기본
 streamlit
+
+# 환경 변수 (.env) 로드
+python-dotenv
+
+# OpenAI API
 openai
+
+# 문서 처리
+docx2txt   # DOCX 텍스트 추출
+pdfplumber # PDF 텍스트 추출 (필요 시)
+pytesseract # 이미지 OCR (필요 시)
+paddleocr # 이미지 OCR 대안 (필요 시)
+
+# NLP
+nltk
+
+# 이미지/배열 처리
+opencv-python
+Pillow
+numpy
+
+# 기타
+protobuf  # gRPC/protobuf 버전 맞추기 (일부 라이브러리와 충돌 방지)
+
+# langchain, chromadb 등도 쓰고 싶다면 추가
+# langchain
+# chromadb
+# tiktoken
