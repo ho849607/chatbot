@@ -1,4 +1,13 @@
 import os
+import nltk
+
+# (1) NLTK_DATA 경로를 /tmp 로 지정 (쓰기 가능)
+nltk_data_dir = "/tmp/nltk_data"
+os.makedirs(nltk_data_dir, exist_ok=True)
+os.environ["NLTK_DATA"] = nltk_data_dir
+nltk.data.path.append(nltk_data_dir)
+nltk.download("stopwords", download_dir=nltk_data_dir)
+
 import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
@@ -8,31 +17,22 @@ import hashlib
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
-import docx2txt
-import pdfplumber
-from pptx import Presentation
-from PIL import Image
-import cv2
-import numpy as np
-import subprocess
-import tempfile
 
-# 추가: 구글 OAuth 라이브러리
-from google_auth_oauthlib.flow import Flow
-from google.oauth2 import id_token
-from google.auth.transport import requests
+# docx2txt 설치 확인
+try:
+    import docx2txt
+    DOCX_ENABLED = True
+except ImportError:
+    DOCX_ENABLED = False
 
-# 추가: 스트림릿 드로어블 캔버스
-from streamlit_drawable_canvas import st_canvas
+# pptx 모듈(실제 패키지: python-pptx) 설치 확인
+try:
+    from pptx import Presentation
+except ImportError:
+    st.error("pptx 모듈이 설치되어 있지 않습니다. 'python-pptx' 패키지를 설치해 주세요.")
+    st.stop()
 
-###############################################################################
-# NLTK 설정
-###############################################################################
-nltk_data_dir = "/tmp/nltk_data"
-os.makedirs(nltk_data_dir, exist_ok=True)
-os.environ["NLTK_DATA"] = nltk_data_dir
-nltk.data.path.append(nltk_data_dir)
-nltk.download("stopwords", download_dir=nltk_data_dir)
+# 초기 NLTK 다운로드 (tokenizer, stopwords가 없는 경우)
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
@@ -42,6 +42,7 @@ try:
 except LookupError:
     nltk.download('stopwords', download_dir=nltk_data_dir)
 
+# 사용자 정의 한국어 스톱워드
 korean_stopwords = [
     '이', '그', '저', '것', '수', '등', '들', '및', '더', '로', '를', '에',
     '의', '은', '는', '가', '와', '과', '하다', '있다', '되다', '이다',
@@ -50,9 +51,6 @@ korean_stopwords = [
 english_stopwords = set(stopwords.words('english'))
 final_stopwords = english_stopwords.union(set(korean_stopwords))
 
-###############################################################################
-# Streamlit 페이지 설정
-###############################################################################
 st.set_page_config(page_title="studyhelper", layout="centered")
 
 ###############################################################################
@@ -60,7 +58,6 @@ st.set_page_config(page_title="studyhelper", layout="centered")
 ###############################################################################
 dotenv_path = Path('.env')
 load_dotenv(dotenv_path=dotenv_path)
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     st.error("서버에 OpenAI API 키가 설정되지 않았습니다.")
@@ -68,11 +65,15 @@ if not OPENAI_API_KEY:
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# 구글 OAuth 설정
+# 구글 OAuth 설정 (간단한 수동 방식 예시)
 ###############################################################################
-CLIENT_SECRETS_FILE = "client_secret.json"  # 구글 클라이언트 비밀 파일
+from google_auth_oauthlib.flow import Flow
+from google.oauth2 import id_token
+from google.auth.transport import requests
+
+CLIENT_SECRETS_FILE = "client_secret.json"  # 구글 OAuth 클라이언트 비밀 파일
 SCOPES = ["openid", "email", "profile"]
-REDIRECT_URI = "http://localhost:8501"  # 로컬 테스트 시 기본 포트 (배포 시 변경)
+REDIRECT_URI = "http://localhost:8501"  # 로컬 테스트 시 사용 (배포 시 변경)
 
 if "user_email" not in st.session_state:
     st.session_state["user_email"] = None
@@ -89,7 +90,7 @@ def google_login_flow():
     flow = create_flow()
     auth_url, _ = flow.authorization_url(prompt="consent")
     st.write("## 구글 로그인 URL")
-    st.write("아래 링크로 이동하여 구글 계정 인증을 진행한 후, 주소창에 나타난 'code' 값을 복사해서 입력하세요.")
+    st.write("아래 링크로 이동하여 구글 계정 인증 후, 주소창의 'code' 값을 복사해서 입력하세요.")
     st.write(auth_url)
     code_input = st.text_input("인증 코드 입력:")
     if st.button("인증 코드 제출"):
@@ -354,10 +355,10 @@ def main():
     st.title("studyhelper")
     st.warning("저작권에 유의해 파일을 업로드하세요.")
     st.info("ChatGPT는 실수를 할 수 있습니다. 중요한 정보를 반드시 추가 확인하세요.")
-
+    
     # 사이드바 라디오 버튼: "구글 로그인", "GPT 채팅", "DOCX 분석", "커뮤니티", "이미지 분석"
     tab = st.sidebar.radio("메뉴 선택", ("구글 로그인", "GPT 채팅", "DOCX 분석", "커뮤니티", "이미지 분석"))
-
+    
     if tab == "구글 로그인":
         st.subheader("구글 로그인")
         if st.session_state.get("user_email"):
@@ -367,14 +368,14 @@ def main():
                 st.experimental_rerun()
         else:
             google_login_flow()
-
+    
     elif tab == "GPT 채팅":
         st.subheader("GPT-4 채팅")
         if not st.session_state.get("user_email"):
             st.warning("구글 로그인을 먼저 진행해 주세요.")
         else:
             chat_interface()
-
+    
     elif tab == "DOCX 분석":
         st.subheader("DOCX 문서 분석 (고급 Chunk 단위 분석)")
         if not st.session_state.get("user_email"):
@@ -412,8 +413,10 @@ def main():
                         st.write(st.session_state.summary)
                     else:
                         st.write("## 요약 결과를 표시할 수 없습니다.")
+    
     elif tab == "커뮤니티":
         community_investment_tab()
+    
     elif tab == "이미지 분석":
         st.subheader("이미지 분석 (밑줄 강조 및 핵심 요약)")
         if not st.session_state.get("user_email"):
@@ -443,6 +446,7 @@ def main():
                     st.write(annotation_summary)
                 else:
                     st.info("아직 캔버스에서 강조된 영역이 없습니다. 강조 표시를 해 보세요.")
+    
     st.write("---")
 
 if __name__ == "__main__":
