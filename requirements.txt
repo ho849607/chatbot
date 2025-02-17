@@ -25,6 +25,9 @@ numpy
 # 기타
 protobuf  # gRPC/protobuf 버전 맞추기 (일부 라이브러리와 충돌 방지)
 
+google-auth-oauthlib
+
+
 # langchain, chromadb 등도 쓰고 싶다면 추가
 # langchain
 # chromadb
