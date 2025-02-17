@@ -72,7 +72,8 @@ openai.api_key = OPENAI_API_KEY
 # client_secret.json 파일은 프로젝트 루트에 위치해야 하며, 올바른 JSON 형식이어야 합니다.
 CLIENT_SECRETS_FILE = "client_secret.json"
 SCOPES = ["openid", "email", "profile"]
-# 실제 앱 도메인에 맞게 수정 (마지막 슬래시 포함)
+
+# REDIRECT_URI를 실제 앱 도메인으로 설정 (마지막 슬래시 포함)
 REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app/"
 
 if "user_email" not in st.session_state:
@@ -88,7 +89,7 @@ def create_flow():
 def google_login_flow():
     """
     간편 로그인: 자동으로 URL 쿼리 파라미터를 확인하여 인증 코드를 처리하고,
-    코드가 없으면 '구글로 로그인하기' 링크를 표시합니다.
+    인증 코드가 없으면 '구글로 로그인하기' 링크를 표시합니다.
     """
     query_params = st.query_params
     if "code" in query_params:
