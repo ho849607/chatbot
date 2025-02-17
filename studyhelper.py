@@ -1,79 +1,88 @@
 import os
-import nltk
-
-# (1) NLTK_DATA 경로를 /tmp 로 지정 (쓰기 가능)
-nltk_data_dir = "/tmp/nltk_data"
-os.makedirs(nltk_data_dir, exist_ok=True)
-os.environ["NLTK_DATA"] = nltk_data_dir
-nltk.data.path.append(nltk_data_dir)
-nltk.download("stopwords", download_dir=nltk_data_dir)
-
 import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
 import openai
 from pathlib import Path
 import hashlib
+
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 
-# docx2txt 설치 확인
+# 문서 처리 (docx2txt, pdfplumber, python-pptx 등 필요시 사용)
 try:
     import docx2txt
     DOCX_ENABLED = True
 except ImportError:
     DOCX_ENABLED = False
 
-# pptx 모듈(실제 패키지: python-pptx) 설치 확인
+# PPTX 설치 확인
 try:
     from pptx import Presentation
+    PPTX_ENABLED = True
 except ImportError:
-    st.error("pptx 모듈이 설치되어 있지 않습니다. 'python-pptx' 패키지를 설치해 주세요.")
-    st.stop()
+    PPTX_ENABLED = False
 
-# 초기 NLTK 다운로드 (tokenizer, stopwords가 없는 경우)
+# PDF, DOC, HWP 처리용(선택)
+# import pdfplumber
+# etc...
+
+# 구글 OAuth
+from google_auth_oauthlib.flow import Flow
+from google.oauth2 import id_token
+from google.auth.transport import requests
+
+###############################################################################
+# NLTK 설정 (stopwords 등)
+###############################################################################
+nltk_data_dir = "/tmp/nltk_data"
+os.makedirs(nltk_data_dir, exist_ok=True)
+os.environ["NLTK_DATA"] = nltk_data_dir
+nltk.data.path.append(nltk_data_dir)
+
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
     nltk.download('punkt', download_dir=nltk_data_dir)
+
 try:
     nltk.data.find('corpora/stopwords')
 except LookupError:
     nltk.download('stopwords', download_dir=nltk_data_dir)
 
-# 사용자 정의 한국어 스톱워드
 korean_stopwords = [
-    '이', '그', '저', '것', '수', '등', '들', '및', '더', '로', '를', '에',
-    '의', '은', '는', '가', '와', '과', '하다', '있다', '되다', '이다',
-    '으로', '에서', '까지', '부터', '만', '그리고', '하지만', '그러나'
+    '이','그','저','것','수','등','들','및','더','로','를','에',
+    '의','은','는','가','와','과','하다','있다','되다','이다',
+    '으로','에서','까지','부터','만','그리고','하지만','그러나'
 ]
 english_stopwords = set(stopwords.words('english'))
 final_stopwords = english_stopwords.union(set(korean_stopwords))
 
+###############################################################################
+# Streamlit 페이지 설정
+###############################################################################
 st.set_page_config(page_title="studyhelper", layout="centered")
 
 ###############################################################################
-# .env 로드 및 OpenAI API 키 설정 (서버 측에 보관)
+# .env 로드 및 OpenAI API 키 설정 (사용자에게는 묻지 않음)
 ###############################################################################
 dotenv_path = Path('.env')
 load_dotenv(dotenv_path=dotenv_path)
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    st.error("서버에 OpenAI API 키가 설정되지 않았습니다.")
+    st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
     st.stop()
+
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# 구글 OAuth 설정 (간단한 수동 방식 예시)
+# 구글 OAuth 설정
 ###############################################################################
-from google_auth_oauthlib.flow import Flow
-from google.oauth2 import id_token
-from google.auth.transport import requests
-
-CLIENT_SECRETS_FILE = "client_secret.json"  # 구글 OAuth 클라이언트 비밀 파일
-SCOPES = ["openid", "email", "profile"]
-REDIRECT_URI = "http://localhost:8501"  # 로컬 테스트 시 사용 (배포 시 변경)
+CLIENT_SECRETS_FILE = "client_secret.json"  # 구글 OAuth 클라이언트 JSON
+SCOPES = ["openid","email","profile"]
+REDIRECT_URI = "http://localhost:8501"  # 로컬 테스트 시 기본 포트 (배포 시 변경)
 
 if "user_email" not in st.session_state:
     st.session_state["user_email"] = None
@@ -87,13 +96,18 @@ def create_flow():
     return flow
 
 def google_login_flow():
+    """
+    간단한 수동 코드 입력 방식 (실제 배포 시엔 Redirect URI 자동 처리 권장)
+    """
     flow = create_flow()
     auth_url, _ = flow.authorization_url(prompt="consent")
-    st.write("## 구글 로그인 URL")
-    st.write("아래 링크로 이동하여 구글 계정 인증 후, 주소창의 'code' 값을 복사해서 입력하세요.")
+
+    st.write("## 구글 로그인")
+    st.write("1) 아래 링크로 이동하여 구글 계정 인증 후, 주소창의 'code' 파라미터를 복사해오세요:")
     st.write(auth_url)
-    code_input = st.text_input("인증 코드 입력:")
-    if st.button("인증 코드 제출"):
+
+    code_input = st.text_input("2) 인증 코드 입력:")
+    if st.button("3) 인증 코드 제출"):
         if code_input.strip():
             try:
                 flow.fetch_token(code=code_input.strip())
@@ -114,21 +128,21 @@ def google_login_flow():
             st.warning("인증 코드를 입력하세요.")
 
 ###############################################################################
-# GPT 연동 함수 (최신 openai.ChatCompletion 사용)
+# GPT 함수
 ###############################################################################
 def ask_gpt(prompt_text, model_name="gpt-4", temperature=0.0):
     response = openai.ChatCompletion.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "You are a helpful AI assistant."},
-            {"role": "user", "content": prompt_text}
+            {"role":"system","content":"You are a helpful AI assistant."},
+            {"role":"user","content":prompt_text}
         ],
         temperature=temperature
     )
     return response.choices[0].message.content.strip()
 
 ###############################################################################
-# DOCX 고급 분석 (Chunk 분할 + 중요도 평가)
+# DOCS 분석 (docx 예시)
 ###############################################################################
 def chunk_text_by_heading(docx_text):
     lines = docx_text.split('\n')
@@ -166,7 +180,7 @@ def gpt_evaluate_importance(chunk_text, language='korean'):
         텍스트:
         {chunk_text}
 
-        형식 예:
+        형식 예시:
         중요도: 4
         요약: ~~
         """
@@ -192,7 +206,7 @@ def gpt_evaluate_importance(chunk_text, language='korean'):
             except:
                 pass
         if "요약:" in line or "Summary:" in line:
-            short_summary = line.split(':', 1)[-1].strip()
+            short_summary = line.split(':',1)[-1].strip()
     return importance, short_summary
 
 def docx_advanced_processing(docx_text, language='korean'):
@@ -215,106 +229,84 @@ def docx_advanced_processing(docx_text, language='korean'):
     final_summary = "\n".join(final_summary_parts)
     return final_summary
 
+def docx_to_text(upload_file):
+    """
+    DOCX 파일을 텍스트로 추출
+    """
+    try:
+        text = docx2txt.process(BytesIO(upload_file.getvalue()))
+        return text if text else ""
+    except Exception as e:
+        st.error(f"DOCX 파일 처리 오류: {e}")
+        return ""
+
 ###############################################################################
-# 채팅 인터페이스
+# GPT 채팅 인터페이스
 ###############################################################################
 def chat_interface():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
     for chat in st.session_state.chat_history:
-        if chat["role"] == "user":
-            with st.chat_message("user"):
-                st.write(chat["message"])
-        else:
-            with st.chat_message("assistant"):
-                st.write(chat["message"])
+        role = chat["role"]
+        content = chat["message"]
+        with st.chat_message(role):
+            st.write(content)
+
     user_chat_input = st.chat_input("메시지를 입력하세요:")
     if user_chat_input:
-        st.session_state.chat_history.append({"role": "user", "message": user_chat_input})
+        # 사용자 입력 기록
+        st.session_state.chat_history.append({"role":"user","message":user_chat_input})
         with st.chat_message("user"):
             st.write(user_chat_input)
-        with st.spinner("GPT가 응답 중입니다..."):
+
+        with st.spinner("GPT가 응답 중..."):
             gpt_response = ask_gpt(user_chat_input, model_name="gpt-4", temperature=0.0)
-            st.session_state.chat_history.append({"role": "assistant", "message": gpt_response})
-            with st.chat_message("assistant"):
-                st.write(gpt_response)
+        st.session_state.chat_history.append({"role":"assistant","message":gpt_response})
+
+        with st.chat_message("assistant"):
+            st.write(gpt_response)
 
 ###############################################################################
-# DOCX 텍스트 추출
+# 커뮤니티 (아이디어 공유)
 ###############################################################################
-def docx_to_text(upload_file):
-    try:
-        text = docx2txt.process(BytesIO(upload_file.getvalue()))
-        return text if text else ""
-    except Exception as e:
-        st.error(f"DOCX 파일 처리 중 오류: {e}")
-        return ""
-
-###############################################################################
-# 커뮤니티 (아이디어 공유 & 투자)
-###############################################################################
-def community_investment_tab():
-    st.header("아이디어 공유 & 투자 커뮤니티")
+def community_tab():
+    st.header("커뮤니티 기능 (서로의 문제 공유 및 해결책 모색)")
     if "community_ideas" not in st.session_state:
         st.session_state.community_ideas = []
-    st.subheader("새로운 아이디어 제안하기")
-    idea_title = st.text_input("아이디어 제목", "")
-    idea_content = st.text_area("아이디어 내용(간략 소개)", "")
-    if st.button("아이디어 등록"):
+    st.subheader("새로운 문제/아이디어 제안하기")
+    idea_title = st.text_input("제목", "")
+    idea_content = st.text_area("내용 (간략 소개)", "")
+    if st.button("등록"):
         if idea_title.strip() and idea_content.strip():
             st.session_state.community_ideas.append({
                 "title": idea_title,
                 "content": idea_content,
-                "comments": [],
-                "likes": 0,
-                "dislikes": 0,
-                "investment": 0
+                "comments": []
             })
-            st.success("아이디어가 등록되었습니다!")
+            st.success("등록되었습니다!")
         else:
             st.warning("제목과 내용을 입력하세요.")
+
     st.write("---")
-    st.subheader("커뮤니티 아이디어 목록")
+    st.subheader("커뮤니티 목록")
     if len(st.session_state.community_ideas) == 0:
-        st.write("아직 등록된 아이디어가 없습니다.")
+        st.write("아직 등록된 아이디어/문제가 없습니다.")
     else:
         for idx, idea in enumerate(st.session_state.community_ideas):
             with st.expander(f"{idx+1}. {idea['title']}"):
                 st.write(f"**내용**: {idea['content']}")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.write(f"👍 좋아요: {idea['likes']}")
-                    if st.button(f"좋아요 (아이디어 #{idx+1})"):
-                        idea["likes"] += 1
-                        st.experimental_rerun()
-                with col2:
-                    st.write(f"👎 싫어요: {idea['dislikes']}")
-                    if st.button(f"싫어요 (아이디어 #{idx+1})"):
-                        idea["dislikes"] += 1
-                        st.experimental_rerun()
-                with col3:
-                    st.write(f"💰 현재 투자액: {idea['investment']}")
-                    invest_amount = st.number_input(
-                        f"투자 금액 입력 (아이디어 #{idx+1})",
-                        min_value=0,
-                        step=10,
-                        key=f"investment_input_{idx}"
-                    )
-                    if st.button(f"투자하기 (아이디어 #{idx+1})"):
-                        idea["investment"] += invest_amount
-                        st.success(f"{invest_amount}만큼 투자했습니다!")
-                        st.experimental_rerun()
                 st.write("### 댓글")
                 if len(idea["comments"]) == 0:
                     st.write("아직 댓글이 없습니다.")
                 else:
                     for c_idx, comment in enumerate(idea["comments"]):
                         st.write(f"- {comment}")
+
                 comment_text = st.text_input(
-                    f"댓글 달기 (아이디어 #{idx+1})",
+                    f"댓글 달기 (#{idx+1})",
                     key=f"comment_input_{idx}"
                 )
-                if st.button(f"댓글 등록 (아이디어 #{idx+1})"):
+                if st.button(f"댓글 등록 (#{idx+1})"):
                     if comment_text.strip():
                         idea["comments"].append(comment_text.strip())
                         st.success("댓글이 등록되었습니다!")
@@ -322,132 +314,66 @@ def community_investment_tab():
                     else:
                         st.warning("댓글 내용을 입력하세요.")
                 st.write("---")
-                st.write("### GPT 추가 기능")
-                if st.button(f"SWOT 분석 (아이디어 #{idx+1})"):
-                    with st.spinner("SWOT 분석 중..."):
-                        prompt_swot = f"""
-                        아래 아이디어에 대해 간략하게 SWOT(Strengths, Weaknesses, Opportunities, Threats)을 해주세요.
-
-                        아이디어:
-                        {idea['content']}
-                        """
-                        swot_result = ask_gpt(prompt_swot, "gpt-4", 0.3)
-                        st.write("**SWOT 분석 결과**:")
-                        st.write(swot_result)
-                if st.button(f"주제별 분류 (아이디어 #{idx+1})"):
-                    with st.spinner("아이디어 주제 분류 중..."):
-                        prompt_category = f"""
-                        아래 아이디어가 어느 분야(기술, 푸드, 교육, 금융, 건강, 기타)인지 추정해 주세요.
-                        간단한 근거와 함께 알려주면 감사하겠습니다.
-
-                        아이디어:
-                        {idea['content']}
-                        """
-                        category_result = ask_gpt(prompt_category, "gpt-4", 0.3)
-                        st.write("**주제별 분류 결과**:")
-                        st.write(category_result)
-                st.write("---")
 
 ###############################################################################
 # 메인 함수
 ###############################################################################
 def main():
     st.title("studyhelper")
-    st.warning("저작권에 유의해 파일을 업로드하세요.")
-    st.info("ChatGPT는 실수를 할 수 있습니다. 중요한 정보를 반드시 추가 확인하세요.")
-    
-    # 사이드바 라디오 버튼: "구글 로그인", "GPT 채팅", "DOCX 분석", "커뮤니티", "이미지 분석"
-    tab = st.sidebar.radio("메뉴 선택", ("구글 로그인", "GPT 채팅", "DOCX 분석", "커뮤니티", "이미지 분석"))
-    
-    if tab == "구글 로그인":
-        st.subheader("구글 로그인")
-        if st.session_state.get("user_email"):
-            st.success(f"로그인됨: {st.session_state['user_email']}")
-            if st.button("로그아웃"):
-                st.session_state["user_email"] = None
-                st.experimental_rerun()
-        else:
-            google_login_flow()
-    
-    elif tab == "GPT 채팅":
-        st.subheader("GPT-4 채팅")
-        if not st.session_state.get("user_email"):
-            st.warning("구글 로그인을 먼저 진행해 주세요.")
-        else:
-            chat_interface()
-    
-    elif tab == "DOCX 분석":
-        st.subheader("DOCX 문서 분석 (고급 Chunk 단위 분석)")
-        if not st.session_state.get("user_email"):
-            st.warning("구글 로그인을 먼저 진행해 주세요.")
-        else:
-            uploaded_file = st.file_uploader(
-                "DOCX 파일을 업로드하세요 (문서 내에 '===Heading:'이라는 구분자를 추가해보세요!)",
-                type=['docx']
-            )
-            if uploaded_file is not None:
-                filename = uploaded_file.name
-                file_bytes = uploaded_file.getvalue()
-                file_hash = hashlib.md5(file_bytes).hexdigest()
-                if ("uploaded_file_hash" not in st.session_state or
-                    st.session_state.uploaded_file_hash != file_hash):
-                    st.session_state.uploaded_file_hash = file_hash
-                    st.session_state.extracted_text = ""
-                    st.session_state.summary = ""
-                    st.session_state.processed = False
-                if not st.session_state.processed:
-                    raw_text = docx_to_text(uploaded_file)
-                    if raw_text.strip():
-                        with st.spinner("문서 고급 분석 진행 중..."):
-                            advanced_summary = docx_advanced_processing(raw_text, language='korean')
-                            st.session_state.summary = advanced_summary
-                            st.session_state.extracted_text = raw_text
-                            st.success("DOCX 고급 분석 완료!")
-                    else:
-                        st.error("DOCX에서 텍스트를 추출할 수 없습니다.")
-                        st.session_state.summary = ""
-                    st.session_state.processed = True
-                if st.session_state.get("processed", False):
-                    if st.session_state.get("summary", "").strip():
-                        st.write("## (고급) Chunk 기반 요약 & 중요도 결과")
-                        st.write(st.session_state.summary)
-                    else:
-                        st.write("## 요약 결과를 표시할 수 없습니다.")
-    
-    elif tab == "커뮤니티":
-        community_investment_tab()
-    
-    elif tab == "이미지 분석":
-        st.subheader("이미지 분석 (밑줄 강조 및 핵심 요약)")
-        if not st.session_state.get("user_email"):
-            st.warning("구글 로그인을 먼저 진행해 주세요.")
-        else:
-            uploaded_img = st.file_uploader("이미지 파일을 업로드하세요 (PNG, JPG, JPEG)", type=['png', 'jpg', 'jpeg'])
-            if uploaded_img is not None:
-                image = Image.open(uploaded_img).convert("RGB")
-                st.image(image, caption="업로드된 이미지", use_column_width=True)
-                st.write("아래 캔버스에서 이미지에 밑줄 또는 형광펜으로 강조할 부분을 표시하세요.")
-                canvas_result = st_canvas(
-                    fill_color="rgba(255, 255, 0, 0.3)",
-                    stroke_width=3,
-                    stroke_color="#FF0000",
-                    background_image=image,
-                    update_streamlit=True,
-                    height=image.height,
-                    width=image.width,
-                    drawing_mode="freedraw",
-                    key="canvas_img"
-                )
-                if canvas_result.json_data is not None and canvas_result.json_data.get("objects"):
-                    st.write("강조된 영역이 감지되었습니다. 해당 영역에 대해 GPT에게 분석을 요청합니다.")
-                    prompt_annotation = "사용자가 이미지에서 강조한 부분의 핵심 내용을 요약해 주세요."
-                    annotation_summary = ask_gpt(prompt_annotation, model_name="gpt-4", temperature=0.0)
-                    st.write("### 강조 영역 분석 결과")
-                    st.write(annotation_summary)
+    st.write("이 앱은 구글 로그인으로 인증 후, GPT 채팅 / DOCS 분석 / 커뮤니티 기능을 제공합니다.")
+    st.warning("저작권에 유의하여 파일을 업로드하세요. GPT는 부정확할 수 있으니 중요한 정보는 검증하세요.")
+
+    # (A) 구글 로그인 여부 체크
+    if not st.session_state.get("user_email"):
+        # 아직 로그인 안 됨 → 구글 로그인 화면만 표시
+        st.info("구글 로그인 필요")
+        google_login_flow()
+        return  # 로그인 전이라면 함수 종료
+    else:
+        st.success(f"로그인됨: {st.session_state['user_email']}")
+        if st.button("로그아웃"):
+            st.session_state["user_email"] = None
+            st.experimental_rerun()
+
+    # (B) 로그인 후 메뉴 표시
+    tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "DOCS 분석", "커뮤니티"))
+
+    if tab == "GPT 채팅":
+        st.subheader("GPT 채팅")
+        chat_interface()
+
+    elif tab == "DOCS 분석":
+        st.subheader("DOCS 분석 (DOCX 고급 분석 예시)")
+        uploaded_file = st.file_uploader(
+            "문서를 업로드하세요 (예: docx)",
+            type=["docx"]  # 필요시 ["pdf","docx","pptx","doc","hwp"] 등 확장
+        )
+        if uploaded_file:
+            file_bytes = uploaded_file.getvalue()
+            file_hash = hashlib.md5(file_bytes).hexdigest()
+            if ("uploaded_file_hash" not in st.session_state or
+                st.session_state.uploaded_file_hash != file_hash):
+                st.session_state.uploaded_file_hash = file_hash
+                st.session_state.processed = False
+
+            if not st.session_state.get("processed"):
+                raw_text = docx_to_text(uploaded_file)
+                if raw_text.strip():
+                    with st.spinner("문서 분석 중..."):
+                        advanced_summary = docx_advanced_processing(raw_text, language='korean')
+                        st.session_state["docs_summary"] = advanced_summary
+                        st.success("분석 완료!")
                 else:
-                    st.info("아직 캔버스에서 강조된 영역이 없습니다. 강조 표시를 해 보세요.")
-    
-    st.write("---")
+                    st.error("텍스트를 추출할 수 없습니다.")
+                st.session_state["processed"] = True
+
+            if st.session_state.get("processed") and st.session_state.get("docs_summary"):
+                st.write("## 분석 결과")
+                st.write(st.session_state["docs_summary"])
+
+    elif tab == "커뮤니티":
+        st.subheader("커뮤니티")
+        community_tab()
 
 if __name__ == "__main__":
     main()
