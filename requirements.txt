@@ -32,3 +32,5 @@ google-auth-oauthlib
 # langchain
 # chromadb
 # tiktoken
+protobuf
+streamlit-drawable-canvas
