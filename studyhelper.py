@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 import openai
 from pathlib import Path
 import hashlib
-
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -42,9 +41,9 @@ except LookupError:
     nltk.download('stopwords', download_dir=nltk_data_dir)
 
 korean_stopwords = [
-    '이', '그', '저', '것', '수', '등', '들', '및', '더', '로', '를', '에',
-    '의', '은', '는', '가', '와', '과', '하다', '있다', '되다', '이다',
-    '으로', '에서', '까지', '부터', '만', '그리고', '하지만', '그러나'
+    '이','그','저','것','수','등','들','및','더','로','를','에',
+    '의','은','는','가','와','과','하다','있다','되다','이다',
+    '으로','에서','까지','부터','만','그리고','하지만','그러나'
 ]
 english_stopwords = set(stopwords.words('english'))
 final_stopwords = english_stopwords.union(set(korean_stopwords))
@@ -55,11 +54,10 @@ final_stopwords = english_stopwords.union(set(korean_stopwords))
 st.set_page_config(page_title="studyhelper", layout="centered")
 
 ###############################################################################
-# .env 로드 및 OpenAI API 키 설정 (사용자에게는 묻지 않음)
+# .env 로드 및 OpenAI API 키 설정 (사용자에게 묻지 않음)
 ###############################################################################
 dotenv_path = Path('.env')
 load_dotenv(dotenv_path=dotenv_path)
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
@@ -69,44 +67,54 @@ openai.api_key = OPENAI_API_KEY
 ###############################################################################
 # 구글 OAuth 설정
 ###############################################################################
-# client_secret.json 파일은 프로젝트 루트에 위치해야 하며, 올바른 JSON 형식이어야 합니다.
+# client_secret.json 파일은 프로젝트 루트에 있어야 하며, 올바른 JSON 형식이어야 합니다.
 CLIENT_SECRETS_FILE = "client_secret.json"
 SCOPES = ["openid", "email", "profile"]
-
-# 여기서 REDIRECT_URI를 실제 앱 도메인과 일치하도록 수정합니다.
+# 실제 앱 도메인에 맞게 수정 (예: Streamlit Cloud 도메인)
 REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app"
 
 if "user_email" not in st.session_state:
     st.session_state["user_email"] = None
 
 def create_flow():
-    flow = Flow.from_client_secrets_file(
+    return Flow.from_client_secrets_file(
         client_secrets_file=CLIENT_SECRETS_FILE,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
-    return flow
 
 def google_login_flow():
     """
-    자동 리디렉션 방식으로 Google 로그인 페이지로 이동합니다.
-    실제 배포 시, 리디렉션 URI에서 인증 코드를 자동 처리하도록 구현해야 합니다.
+    간편 로그인: 사용자가 앱에 접속하면, 
+    URL의 query parameter에 인증 코드(code)가 있으면 자동으로 처리하고,
+    없으면 '구글로 로그인하기' 버튼을 통해 인증 페이지로 리디렉션합니다.
     """
-    flow = create_flow()
-    auth_url, _ = flow.authorization_url(prompt="consent")
-    
-    # 자동 리디렉션 HTML (meta refresh 사용)
-    redirect_html = f"""
-    <html>
-      <head>
-        <meta http-equiv="refresh" content="0; url={auth_url}" />
-      </head>
-      <body>
-        <p>Redirecting to Google login...</p>
-      </body>
-    </html>
-    """
-    st.components.v1.html(redirect_html, height=100)
+    # 1. URL 쿼리 파라미터에서 'code' 확인
+    query_params = st.experimental_get_query_params()
+    if "code" in query_params:
+        code = query_params["code"][0]
+        flow = create_flow()
+        try:
+            flow.fetch_token(code=code)
+            credentials = flow.credentials
+            request_obj = requests.Request()
+            id_info = id_token.verify_oauth2_token(
+                id_token=credentials.id_token,
+                request=request_obj,
+                audience=flow.client_config["client_id"]
+            )
+            email = id_info.get("email")
+            st.session_state["user_email"] = email
+            st.success(f"로그인 성공! 이메일: {email}")
+            # 쿼리 파라미터 초기화
+            st.experimental_set_query_params()
+        except Exception as e:
+            st.error(f"토큰 교환 실패: {e}")
+    else:
+        # 2. 인증 URL 생성 및 버튼으로 표시
+        flow = create_flow()
+        auth_url, _ = flow.authorization_url(prompt="consent")
+        st.markdown(f"[구글로 로그인하기]({auth_url})", unsafe_allow_html=True)
 
 ###############################################################################
 # GPT 연동 함수
