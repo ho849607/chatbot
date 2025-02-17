@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 import openai
 from pathlib import Path
 import hashlib
-
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -25,13 +24,12 @@ from google.oauth2 import id_token
 from google.auth.transport import requests
 
 ###############################################################################
-# NLTK 설정 (stopwords 등)
+# NLTK 설정
 ###############################################################################
 nltk_data_dir = "/tmp/nltk_data"
 os.makedirs(nltk_data_dir, exist_ok=True)
 os.environ["NLTK_DATA"] = nltk_data_dir
 nltk.data.path.append(nltk_data_dir)
-
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
@@ -59,7 +57,6 @@ st.set_page_config(page_title="studyhelper", layout="centered")
 ###############################################################################
 dotenv_path = Path('.env')
 load_dotenv(dotenv_path=dotenv_path)
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
@@ -69,8 +66,7 @@ openai.api_key = OPENAI_API_KEY
 ###############################################################################
 # 구글 OAuth 설정
 ###############################################################################
-# client_secret.json 파일은 프로젝트 루트에 위치해야 합니다.
-CLIENT_SECRETS_FILE = "client_secret.json"  # 위에서 설명한 올바른 JSON 파일이어야 합니다.
+CLIENT_SECRETS_FILE = "client_secret.json"  # 프로젝트 루트에 위치한 client_secret.json 파일
 SCOPES = ["openid", "email", "profile"]
 REDIRECT_URI = "http://localhost:8501"  # 로컬 테스트 시 사용 (배포 시 변경)
 
@@ -87,33 +83,23 @@ def create_flow():
 
 def google_login_flow():
     """
-    간단한 수동 코드 입력 방식 (실제 배포 시에는 리디렉션 URI 자동 처리가 필요)
+    자동 리디렉션 방식으로 Google 로그인 페이지로 이동
     """
     flow = create_flow()
     auth_url, _ = flow.authorization_url(prompt="consent")
-    st.write("## 구글 로그인")
-    st.write("1) 아래 링크로 이동하여 구글 계정 인증 후, 주소창의 'code' 파라미터 값을 복사하세요:")
-    st.write(auth_url)
-    code_input = st.text_input("2) 인증 코드 입력:")
-    if st.button("3) 인증 코드 제출"):
-        if code_input.strip():
-            try:
-                flow.fetch_token(code=code_input.strip())
-                credentials = flow.credentials
-                request = requests.Request()
-                id_info = id_token.verify_oauth2_token(
-                    id_token=credentials.id_token,
-                    request=request,
-                    audience=flow.client_config["client_id"]
-                )
-                email = id_info.get("email")
-                st.session_state["user_email"] = email
-                st.success(f"로그인 성공! 이메일: {email}")
-                st.experimental_rerun()
-            except Exception as e:
-                st.error(f"인증 실패: {e}")
-        else:
-            st.warning("인증 코드를 입력하세요.")
+    
+    # 자동 리디렉션 HTML 코드
+    redirect_html = f"""
+    <html>
+      <head>
+        <meta http-equiv="refresh" content="0; url={auth_url}" />
+      </head>
+      <body>
+        <p>Redirecting to Google login...</p>
+      </body>
+    </html>
+    """
+    st.components.v1.html(redirect_html, height=100)
 
 ###############################################################################
 # GPT 연동 함수
