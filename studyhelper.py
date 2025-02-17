@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import openai
 from pathlib import Path
 import hashlib
+
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -24,13 +25,13 @@ from google.oauth2 import id_token
 from google.auth.transport import requests
 
 ###############################################################################
-# NLTK 설정
+# NLTK 설정 (stopwords 등)
 ###############################################################################
 nltk_data_dir = "/tmp/nltk_data"
 os.makedirs(nltk_data_dir, exist_ok=True)
 os.environ["NLTK_DATA"] = nltk_data_dir
 nltk.data.path.append(nltk_data_dir)
-nltk.download("stopwords", download_dir=nltk_data_dir)
+
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
@@ -54,10 +55,11 @@ final_stopwords = english_stopwords.union(set(korean_stopwords))
 st.set_page_config(page_title="studyhelper", layout="centered")
 
 ###############################################################################
-# .env 로드 및 OpenAI API 키 설정
+# .env 로드 및 OpenAI API 키 설정 (사용자에게는 묻지 않음)
 ###############################################################################
 dotenv_path = Path('.env')
 load_dotenv(dotenv_path=dotenv_path)
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
@@ -68,7 +70,7 @@ openai.api_key = OPENAI_API_KEY
 # 구글 OAuth 설정
 ###############################################################################
 # client_secret.json 파일은 프로젝트 루트에 위치해야 합니다.
-CLIENT_SECRETS_FILE = "client_secret.json"  # 여기에 위 JSON 내용을 저장하세요.
+CLIENT_SECRETS_FILE = "client_secret.json"  # 위에서 설명한 올바른 JSON 파일이어야 합니다.
 SCOPES = ["openid", "email", "profile"]
 REDIRECT_URI = "http://localhost:8501"  # 로컬 테스트 시 사용 (배포 시 변경)
 
@@ -192,7 +194,7 @@ def gpt_evaluate_importance(chunk_text, language='korean'):
             except:
                 pass
         if "요약:" in line or "Summary:" in line:
-            short_summary = line.split(':', 1)[-1].strip()
+            short_summary = line.split(':',1)[-1].strip()
     return importance, short_summary
 
 def docx_advanced_processing(docx_text, language='korean'):
