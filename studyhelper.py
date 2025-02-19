@@ -55,7 +55,7 @@ final_stopwords = english_stopwords.union(set(korean_stopwords))
 st.set_page_config(page_title="studyhelper", layout="centered")
 
 ###############################################################################
-# .env 로드 및 OpenAI API 키 설정 (사용자에게는 묻지 않음)
+# .env 로드 및 OpenAI API 키 설정
 ###############################################################################
 dotenv_path = Path('.env')
 load_dotenv(dotenv_path=dotenv_path)
@@ -69,12 +69,11 @@ openai.api_key = OPENAI_API_KEY
 ###############################################################################
 # 구글 OAuth 설정
 ###############################################################################
-# client_secret.json 파일은 프로젝트 루트에 위치해야 하며, 올바른 JSON 형식이어야 합니다.
 CLIENT_SECRETS_FILE = "client_secret.json"
 SCOPES = ["openid", "email", "profile"]
 
-# REDIRECT_URI를 실제 앱 도메인으로 설정 (마지막 슬래시 포함)
-REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app/"
+# 환경 변수 또는 기본값을 이용해 redirect URI 설정
+REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8501/")
 
 if "user_email" not in st.session_state:
     st.session_state["user_email"] = None
@@ -88,10 +87,10 @@ def create_flow():
 
 def google_login_flow():
     """
-    간편 로그인: 자동으로 URL 쿼리 파라미터를 확인하여 인증 코드를 처리하고,
+    구글 로그인 플로우: URL 쿼리 파라미터에서 인증 코드를 확인하고,
     인증 코드가 없으면 '구글로 로그인하기' 링크를 표시합니다.
     """
-    query_params = st.query_params
+    query_params = st.experimental_get_query_params()
     if "code" in query_params:
         code = query_params["code"][0]
         flow = create_flow()
@@ -107,7 +106,7 @@ def google_login_flow():
             email = id_info.get("email")
             st.session_state["user_email"] = email
             st.success(f"로그인 성공! 이메일: {email}")
-            st.set_query_params()  # 쿼리 파라미터 초기화
+            st.experimental_set_query_params()  # 쿼리 파라미터 초기화
         except Exception as e:
             st.error(f"토큰 교환 실패: {e}")
     else:
@@ -299,7 +298,7 @@ def main():
     st.write("이 앱은 구글 로그인으로 인증 후, GPT 채팅 / DOCS 분석 / 커뮤니티 기능을 제공합니다.")
     st.warning("저작권에 유의하여 파일을 업로드하세요. GPT는 부정확할 수 있으니 중요한 정보는 검증하세요.")
     
-    # (A) 구글 로그인 여부 체크
+    # 구글 로그인 여부 체크
     if not st.session_state.get("user_email"):
         st.info("구글 로그인을 먼저 진행해 주세요.")
         google_login_flow()
@@ -310,7 +309,7 @@ def main():
             st.session_state["user_email"] = None
             st.experimental_rerun()
     
-    # (B) 로그인 후 메뉴 표시
+    # 로그인 후 메뉴 표시
     tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "DOCS 분석", "커뮤니티"))
     
     if tab == "GPT 채팅":
