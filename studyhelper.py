@@ -72,8 +72,9 @@ openai.api_key = OPENAI_API_KEY
 CLIENT_SECRETS_FILE = "client_secret.json"
 SCOPES = ["openid", "email", "profile"]
 
-# REDIRECT_URI를 배포 도메인으로 변경
-REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app/"
+# 환경 변수 REDIRECT_URI를 사용하고, 없으면 기본값("http://localhost:8501/")으로 설정
+# -> 배포 환경에서는 .env 파일에 "REDIRECT_URI=https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app/"를 설정하세요.
+REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8501/")
 
 if "user_email" not in st.session_state:
     st.session_state["user_email"] = None
