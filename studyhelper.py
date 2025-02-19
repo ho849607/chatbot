@@ -90,7 +90,7 @@ def google_login_flow():
     구글 로그인 플로우: URL 쿼리 파라미터에서 인증 코드를 확인하고,
     인증 코드가 없으면 '구글로 로그인하기' 링크를 표시합니다.
     """
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params
     if "code" in query_params:
         code = query_params["code"][0]
         flow = create_flow()
@@ -106,7 +106,7 @@ def google_login_flow():
             email = id_info.get("email")
             st.session_state["user_email"] = email
             st.success(f"로그인 성공! 이메일: {email}")
-            st.experimental_set_query_params()  # 쿼리 파라미터 초기화
+            st.set_query_params()  # 쿼리 파라미터 초기화
         except Exception as e:
             st.error(f"토큰 교환 실패: {e}")
     else:
