@@ -72,8 +72,8 @@ openai.api_key = OPENAI_API_KEY
 CLIENT_SECRETS_FILE = "client_secret.json"
 SCOPES = ["openid", "email", "profile"]
 
-# 강제 리디렉션: localhost:8501
-REDIRECT_URI = "http://localhost:8501/"
+# REDIRECT_URI를 배포 도메인으로 변경
+REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app/"
 
 if "user_email" not in st.session_state:
     st.session_state["user_email"] = None
