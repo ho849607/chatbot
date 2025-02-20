@@ -11,7 +11,6 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 import docx2txt
 
-# PPTX 모듈 설치 확인
 try:
     from pptx import Presentation
     PPTX_ENABLED = True
@@ -63,117 +62,95 @@ if not OPENAI_API_KEY:
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# GPT 연동 함수 (openai>=1.0.0)
+# (openai>=1.0.0) ChatCompletion 함수
 ###############################################################################
-def ask_gpt(prompt_text, model_name="gpt-4", temperature=0.0):
+def ask_gpt(messages, model_name="gpt-4", temperature=0.0):
     """
-    최신 OpenAI Python 라이브러리(1.0.0+)에서는
-    openai.ChatCompletion.create(...) 대신 openai.chat.completions.create(...)를 사용하고,
-    응답은 response.choices[0].message.content 로 접근해야 합니다.
+    messages: [{"role": "user" or "system" or "assistant", "content": "..."}] 의 리스트
     """
     try:
         response = openai.chat.completions.create(
             model=model_name,
-            messages=[
-                {"role": "system", "content": "You are a helpful AI assistant."},
-                {"role": "user", "content": prompt_text},
-            ],
+            messages=messages,
             temperature=temperature
         )
-        # ChatCompletionMessage 객체이므로, dict 인덱싱이 아닌 .content를 사용
         return response.choices[0].message.content.strip()
     except Exception as e:
         st.error(f"OpenAI API 호출 에러: {e}")
         return ""
 
 ###############################################################################
-# DOCS 분석 (DOCX 고급 분석 예시)
+# 긴 텍스트 -> 청크 분할 (문자 기준) 예시
 ###############################################################################
-def chunk_text_by_heading(docx_text):
-    lines = docx_text.split('\n')
+def split_text_into_chunks(text, max_chars=3000):
+    """
+    text를 max_chars 단위로 잘라 리스트로 반환한다.
+    실제로는 토큰 단위 분할이 더 정확하지만, 예시로 문자 기준 사용.
+    """
     chunks = []
-    current_chunk = []
-    heading_title = "NoHeading"
-    chunk_id = 0
-    for line in lines:
-        if line.strip().startswith("===Heading:"):
-            if current_chunk:
-                chunks.append({
-                    "id": chunk_id,
-                    "heading": heading_title,
-                    "text": "\n".join(current_chunk)
-                })
-                chunk_id += 1
-                current_chunk = []
-            heading_title = line.replace("===Heading:", "").strip()
-        else:
-            current_chunk.append(line)
-    if current_chunk:
-        chunks.append({
-            "id": chunk_id,
-            "heading": heading_title,
-            "text": "\n".join(current_chunk)
-        })
+    start_idx = 0
+    while start_idx < len(text):
+        end_idx = min(start_idx + max_chars, len(text))
+        chunk = text[start_idx:end_idx]
+        chunks.append(chunk)
+        start_idx = end_idx
     return chunks
 
-def gpt_evaluate_importance(chunk_text, language='korean'):
-    if language == 'korean':
+###############################################################################
+# 전체 문서를 청크 단위 부분 요약 후 최종 요약에서
+# 중요 문장 3개 & 사용자 질문 2개 생성
+###############################################################################
+def docx_global_processing(docx_text, language='korean'):
+    # 1) 청크 분할
+    chunks = split_text_into_chunks(docx_text, max_chars=3000)
+
+    # 2) 각 청크 부분 요약
+    partial_summaries = []
+    for i, chunk in enumerate(chunks):
         prompt = f"""
-        아래 텍스트가 있습니다. 이 텍스트가 전체 문서에서 얼마나 중요한지 1~5로 평가하고,
-        한두 문장으로 요약해 주세요.
+        아래는 문서의 일부입니다 (청크 {i+1}/{len(chunks)}):
 
-        텍스트:
-        {chunk_text}
+        \"\"\"{chunk}\"\"\"
 
-        형식 예:
-        중요도: 4
-        요약: ~~
+        이 텍스트를 간단히 요약해 주세요.
         """
-    else:
-        prompt = f"""
-        Please rate the importance of the following text on a scale of 1 to 5,
-        and provide a brief summary.
-
-        Text:
-        {chunk_text}
-
-        Example:
-        Importance: 4
-        Summary: ...
-        """
-    response = ask_gpt(prompt, model_name="gpt-4", temperature=0.0)
-    importance = 3
-    short_summary = ""
-    for line in response.split('\n'):
-        if "중요도:" in line or "Importance:" in line:
-            try:
-                importance = int(line.split(':')[-1].strip())
-            except:
-                pass
-        if "요약:" in line or "Summary:" in line:
-            short_summary = line.split(':', 1)[-1].strip()
-    return importance, short_summary
-
-def docx_advanced_processing(docx_text, language='korean'):
-    chunks = chunk_text_by_heading(docx_text)
-    combined_result = []
-    for c in chunks:
-        importance, short_summary = gpt_evaluate_importance(c["text"], language=language)
-        c["importance"] = importance
-        c["short_summary"] = short_summary
-        combined_result.append(c)
-    final_summary_parts = []
-    for c in combined_result:
-        part = (
-            f"=== [Chunk #{c['id']}] Heading: {c['heading']} ===\n"
-            f"중요도: {c['importance']}\n"
-            f"요약: {c['short_summary']}\n"
-            f"원문 일부:\n{c['text'][:200]}...\n"
+        summary = ask_gpt(
+            [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt.strip()}
+            ],
+            model_name="gpt-4",
+            temperature=0.0
         )
-        final_summary_parts.append(part)
-    return "\n".join(final_summary_parts)
+        partial_summaries.append(summary)
+
+    # 3) 부분 요약들을 합쳐 최종 요약 (중요 문장 + 질문 생성)
+    combined_text = "\n\n".join(partial_summaries)
+    final_prompt = f"""
+    아래는 여러 부분 요약을 합친 내용입니다. 
+    이를 바탕으로 전체 문서를 최종 요약해 주세요.
+    그리고 이 문서에서 가장 중요한 문장 3개를 골라 제시하고,
+    사용자에게 묻고 싶은 질문 2개를 만들어 주세요.
+
+    부분 요약들:
+    {combined_text}
+    """
+    final_summary = ask_gpt(
+        [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": final_prompt.strip()},
+        ],
+        model_name="gpt-4",
+        temperature=0.0
+    )
+    return final_summary
 
 def docx_to_text(upload_file):
+    """
+    DOCX 파일의 텍스트를 추출한다. 
+    NLTK, stopwords 등은 여기선 사용하지 않고,
+    docx2txt로 전체 텍스트만 가져온다.
+    """
     try:
         text = docx2txt.process(BytesIO(upload_file.getvalue()))
         return text if text else ""
@@ -192,16 +169,23 @@ def chat_interface():
         content = chat["message"]
         with st.chat_message(role):
             st.write(content)
+
     user_chat_input = st.chat_input("메시지를 입력하세요:")
     if user_chat_input:
         st.session_state.chat_history.append({"role": "user", "message": user_chat_input})
         with st.chat_message("user"):
             st.write(user_chat_input)
+
+        # GPT 호출
         with st.spinner("GPT가 응답 중입니다..."):
-            gpt_response = ask_gpt(user_chat_input, model_name="gpt-4", temperature=0.0)
-        st.session_state.chat_history.append({"role": "assistant", "message": gpt_response})
+            response = ask_gpt([
+                {"role": "system", "content": "You are a helpful AI assistant."},
+                {"role": "user", "content": user_chat_input}
+            ])
+        st.session_state.chat_history.append({"role": "assistant", "message": response})
+
         with st.chat_message("assistant"):
-            st.write(gpt_response)
+            st.write(response)
 
 ###############################################################################
 # 커뮤니티 (문제 공유 및 해결책 모색)
@@ -210,6 +194,7 @@ def community_tab():
     st.header("커뮤니티 (문제 공유 및 해결책 모색)")
     if "community_ideas" not in st.session_state:
         st.session_state.community_ideas = []
+
     st.subheader("새로운 문제/아이디어 제안하기")
     idea_title = st.text_input("제목", "")
     idea_content = st.text_area("내용 (간략 소개)", "")
@@ -223,6 +208,7 @@ def community_tab():
             st.success("등록되었습니다!")
         else:
             st.warning("제목과 내용을 입력하세요.")
+
     st.write("---")
     st.subheader("커뮤니티 목록")
     if len(st.session_state.community_ideas) == 0:
@@ -237,6 +223,7 @@ def community_tab():
                 else:
                     for c_idx, comment in enumerate(idea["comments"]):
                         st.write(f"- {comment}")
+
                 comment_text = st.text_input(f"댓글 달기 (#{idx+1})", key=f"comment_input_{idx}")
                 if st.button(f"댓글 등록 (#{idx+1})"):
                     if comment_text.strip():
@@ -252,16 +239,17 @@ def community_tab():
 ###############################################################################
 def main():
     st.title("studyhelper")
-    st.write("이 앱은 GPT 채팅 / DOCS 분석 / 커뮤니티 기능을 제공합니다. (openai>=1.0.0 버전)")
-    st.warning("저작권에 유의하여 파일을 업로드하세요. GPT는 부정확할 수 있으니 중요한 정보는 검증하세요.")
-    
+    st.write("이 앱은 GPT 채팅 / (고급)DOCS 분석 / 커뮤니티 기능을 제공합니다.")
+    st.warning("GPT는 부정확할 수 있으니 중요한 정보는 별도 검증하세요.")
+
     tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "DOCS 분석", "커뮤니티"))
-    
+
     if tab == "GPT 채팅":
         st.subheader("GPT 채팅")
         chat_interface()
+
     elif tab == "DOCS 분석":
-        st.subheader("DOCS 분석 (DOCX 고급 분석 예시)")
+        st.subheader("DOCS 분석 (긴 문서 자동 청크 + 요약/질문)")
         uploaded_file = st.file_uploader("문서를 업로드하세요 (예: docx)", type=["docx"])
         if uploaded_file:
             file_bytes = uploaded_file.getvalue()
@@ -274,23 +262,87 @@ def main():
             if not st.session_state.get("processed"):
                 raw_text = docx_to_text(uploaded_file)
                 if raw_text.strip():
-                    with st.spinner("문서 분석 중..."):
-                        advanced_summary = docx_advanced_processing(raw_text, language='korean')
-                        st.session_state["docs_summary"] = advanced_summary
+                    with st.spinner("문서 분석 중 (긴 문서 자동 청크 처리)..."):
+                        # 고급 분석 호출
+                        final_summary = docx_global_processing(raw_text)
+                        st.session_state["docs_summary"] = final_summary
                         st.success("분석 완료!")
                 else:
                     st.error("텍스트를 추출할 수 없습니다.")
                 st.session_state["processed"] = True
 
             if st.session_state.get("processed") and st.session_state.get("docs_summary"):
-                st.write("## 분석 결과")
+                st.write("## 분석 결과 (최종 요약 + 중요문장/질문)")
                 st.write(st.session_state["docs_summary"])
 
     elif tab == "커뮤니티":
         st.subheader("커뮤니티")
         community_tab()
-    
+
     st.write("---")
+
+###############################################################################
+# 긴 문서 자동 청크 + 부분 요약 + 최종 요약
+###############################################################################
+def docx_global_processing(docx_text):
+    """
+    1) text를 일정 길이로 청크
+    2) 각 청크 부분 요약
+    3) 부분 요약을 최종 병합 후,
+       - 최종 요약
+       - 중요한 문장 (3개)
+       - 추가 질문 (2개)
+       생성
+    """
+    # 1. 청크 분할
+    chunks = split_text_into_chunks(docx_text, max_chars=3000)
+
+    # 2. 부분 요약
+    partial_summaries = []
+    for i, chunk in enumerate(chunks):
+        prompt_chunk = f"""
+        아래는 문서의 일부입니다 (청크 {i+1}/{len(chunks)}):
+        ---
+        {chunk}
+        ---
+        이 텍스트를 간단히 요약해 주세요.
+        """
+        summary = ask_gpt([
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt_chunk.strip()}
+        ])
+        partial_summaries.append(summary)
+
+    # 3. 부분 요약들을 합쳐 최종 요약 + 중요한 문장 + 질문
+    combined_text = "\n\n".join(partial_summaries)
+    final_prompt = f"""
+    아래는 여러 부분 요약을 합친 내용입니다:
+    ---
+    {combined_text}
+    ---
+    이 문서를 최종 요약해 주세요.
+    그리고 이 문서에서 가장 중요한 문장 3개를 골라 제시하고,
+    사용자에게 묻고 싶은 질문 2개를 만들어 주세요.
+    """
+    final_result = ask_gpt([
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": final_prompt.strip()}
+    ])
+    return final_result
+
+def split_text_into_chunks(text, max_chars=3000):
+    """
+    문자를 기준으로 text를 일정 길이(max_chars)로 나눠 리스트로 반환.
+    실제로는 토큰 수 기반 분할이 정확하나, 예시로 문자 단위 사용.
+    """
+    chunks = []
+    start_idx = 0
+    while start_idx < len(text):
+        end_idx = min(start_idx + max_chars, len(text))
+        chunk = text[start_idx:end_idx]
+        chunks.append(chunk)
+        start_idx = end_idx
+    return chunks
 
 if __name__ == "__main__":
     main()
