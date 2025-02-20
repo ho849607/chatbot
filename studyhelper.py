@@ -63,11 +63,20 @@ if not OPENAI_API_KEY:
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# GPT 연동 함수 (ChatCompletion API)
+# GPT 연동 함수 (ChatCompletion API, openai>=1.0.0)
 ###############################################################################
 def ask_gpt(prompt_text, model_name="gpt-4", temperature=0.0):
+    """
+    OpenAI Python 1.0.0 이상에서는 openai.ChatCompletion.create(...) 대신
+    openai.chat.completions.create(...) 를 사용해야 합니다.
+    
+    :param prompt_text: 사용자 입력 문자열
+    :param model_name: 사용할 모델 (기본: gpt-4)
+    :param temperature: 생성 텍스트 다양성
+    :return: GPT 응답 문자열
+    """
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.chat.completions.create(
             model=model_name,
             messages=[
                 {"role": "system", "content": "You are a helpful AI assistant."},
@@ -75,13 +84,13 @@ def ask_gpt(prompt_text, model_name="gpt-4", temperature=0.0):
             ],
             temperature=temperature
         )
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message["content"].strip()
     except Exception as e:
         st.error(f"OpenAI API 호출 에러: {e}")
         return ""
 
 ###############################################################################
-# DOCX 분석 (DOCX 고급 분석 예시)
+# DOCS 분석 (DOCX 고급 분석 예시)
 ###############################################################################
 def chunk_text_by_heading(docx_text):
     lines = docx_text.split('\n')
@@ -249,8 +258,7 @@ def main():
     st.write("이 앱은 GPT 채팅 / DOCS 분석 / 커뮤니티 기능을 제공합니다.")
     st.warning("저작권에 유의하여 파일을 업로드하세요. GPT는 부정확할 수 있으니 중요한 정보는 검증하세요.")
     
-    # 구글 로그인(인증) 제거, user_email 상태 등 전부 제거
-
+    # 메뉴
     tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "DOCS 분석", "커뮤니티"))
     
     if tab == "GPT 채팅":
