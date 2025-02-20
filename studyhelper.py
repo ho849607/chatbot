@@ -63,17 +63,13 @@ if not OPENAI_API_KEY:
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# GPT 연동 함수 (ChatCompletion API, openai>=1.0.0)
+# GPT 연동 함수 (openai>=1.0.0)
 ###############################################################################
 def ask_gpt(prompt_text, model_name="gpt-4", temperature=0.0):
     """
-    OpenAI Python 1.0.0 이상에서는 openai.ChatCompletion.create(...) 대신
-    openai.chat.completions.create(...) 를 사용해야 합니다.
-    
-    :param prompt_text: 사용자 입력 문자열
-    :param model_name: 사용할 모델 (기본: gpt-4)
-    :param temperature: 생성 텍스트 다양성
-    :return: GPT 응답 문자열
+    최신 OpenAI Python 라이브러리(1.0.0+)에서는
+    openai.ChatCompletion.create(...) 대신 openai.chat.completions.create(...)를 사용하고,
+    응답은 response.choices[0].message.content 로 접근해야 합니다.
     """
     try:
         response = openai.chat.completions.create(
@@ -84,7 +80,8 @@ def ask_gpt(prompt_text, model_name="gpt-4", temperature=0.0):
             ],
             temperature=temperature
         )
-        return response.choices[0].message["content"].strip()
+        # ChatCompletionMessage 객체이므로, dict 인덱싱이 아닌 .content를 사용
+        return response.choices[0].message.content.strip()
     except Exception as e:
         st.error(f"OpenAI API 호출 에러: {e}")
         return ""
@@ -255,10 +252,9 @@ def community_tab():
 ###############################################################################
 def main():
     st.title("studyhelper")
-    st.write("이 앱은 GPT 채팅 / DOCS 분석 / 커뮤니티 기능을 제공합니다.")
+    st.write("이 앱은 GPT 채팅 / DOCS 분석 / 커뮤니티 기능을 제공합니다. (openai>=1.0.0 버전)")
     st.warning("저작권에 유의하여 파일을 업로드하세요. GPT는 부정확할 수 있으니 중요한 정보는 검증하세요.")
     
-    # 메뉴
     tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "DOCS 분석", "커뮤니티"))
     
     if tab == "GPT 채팅":
