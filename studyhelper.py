@@ -59,24 +59,29 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
     st.stop()
+
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# GPT 연동 함수
+# GPT 연동 함수 (ChatCompletion API)
 ###############################################################################
 def ask_gpt(prompt_text, model_name="gpt-4", temperature=0.0):
-    response = openai.ChatCompletion.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": "You are a helpful AI assistant."},
-            {"role": "user", "content": prompt_text}
-        ],
-        temperature=temperature
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = openai.ChatCompletion.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful AI assistant."},
+                {"role": "user", "content": prompt_text},
+            ],
+            temperature=temperature
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        st.error(f"OpenAI API 호출 에러: {e}")
+        return ""
 
 ###############################################################################
-# DOCS 분석 (DOCX 고급 분석 예시)
+# DOCX 분석 (DOCX 고급 분석 예시)
 ###############################################################################
 def chunk_text_by_heading(docx_text):
     lines = docx_text.split('\n')
@@ -160,8 +165,7 @@ def docx_advanced_processing(docx_text, language='korean'):
             f"원문 일부:\n{c['text'][:200]}...\n"
         )
         final_summary_parts.append(part)
-    final_summary = "\n".join(final_summary_parts)
-    return final_summary
+    return "\n".join(final_summary_parts)
 
 def docx_to_text(upload_file):
     try:
@@ -245,9 +249,8 @@ def main():
     st.write("이 앱은 GPT 채팅 / DOCS 분석 / 커뮤니티 기능을 제공합니다.")
     st.warning("저작권에 유의하여 파일을 업로드하세요. GPT는 부정확할 수 있으니 중요한 정보는 검증하세요.")
     
-    # 로그인/로그아웃 제거, 구글 OAuth 제거
-    
-    # 사이드바 메뉴 표시
+    # 구글 로그인(인증) 제거, user_email 상태 등 전부 제거
+
     tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "DOCS 분석", "커뮤니티"))
     
     if tab == "GPT 채팅":
@@ -263,6 +266,7 @@ def main():
                 st.session_state.uploaded_file_hash != file_hash):
                 st.session_state.uploaded_file_hash = file_hash
                 st.session_state.processed = False
+
             if not st.session_state.get("processed"):
                 raw_text = docx_to_text(uploaded_file)
                 if raw_text.strip():
@@ -273,9 +277,11 @@ def main():
                 else:
                     st.error("텍스트를 추출할 수 없습니다.")
                 st.session_state["processed"] = True
+
             if st.session_state.get("processed") and st.session_state.get("docs_summary"):
                 st.write("## 분석 결과")
                 st.write(st.session_state["docs_summary"])
+
     elif tab == "커뮤니티":
         st.subheader("커뮤니티")
         community_tab()
