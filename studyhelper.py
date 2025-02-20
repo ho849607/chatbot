@@ -19,11 +19,6 @@ except ImportError:
     st.error("pptx 모듈이 설치되어 있지 않습니다. 'python-pptx' 패키지를 설치해 주세요.")
     st.stop()
 
-# 구글 OAuth 라이브러리
-from google_auth_oauthlib.flow import Flow
-from google.oauth2 import id_token
-from google.auth.transport import requests
-
 ###############################################################################
 # NLTK 설정 (stopwords 등)
 ###############################################################################
@@ -65,57 +60,6 @@ if not OPENAI_API_KEY:
     st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
     st.stop()
 openai.api_key = OPENAI_API_KEY
-
-###############################################################################
-# 구글 OAuth 설정
-###############################################################################
-CLIENT_SECRETS_FILE = "client_secret.json"
-SCOPES = ["openid", "email", "profile"]
-
-# 환경 변수 REDIRECT_URI를 사용하고, 없으면 기본값("http://localhost:8501/")으로 설정
-# -> 배포 환경에서는 .env 파일에 "REDIRECT_URI=https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app/"를 설정하세요.
-REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8501/")
-
-if "user_email" not in st.session_state:
-    st.session_state["user_email"] = None
-
-def create_flow():
-    return Flow.from_client_secrets_file(
-        client_secrets_file=CLIENT_SECRETS_FILE,
-        scopes=SCOPES,
-        redirect_uri=REDIRECT_URI
-    )
-
-def google_login_flow():
-    """
-    구글 로그인 플로우:
-    URL 쿼리 파라미터에서 인증 코드를 확인하고,
-    인증 코드가 없으면 '구글로 로그인하기' 링크를 표시합니다.
-    """
-    query_params = st.query_params  # 최신 API 사용
-    if "code" in query_params:
-        code = query_params["code"][0]
-        flow = create_flow()
-        try:
-            flow.fetch_token(code=code)
-            credentials = flow.credentials
-            request_obj = requests.Request()
-            id_info = id_token.verify_oauth2_token(
-                id_token=credentials.id_token,
-                request=request_obj,
-                audience=flow.client_config["client_id"]
-            )
-            email = id_info.get("email")
-            st.session_state["user_email"] = email
-            st.success(f"로그인 성공! 이메일: {email}")
-            st.set_query_params()  # 쿼리 파라미터 초기화
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"토큰 교환 실패: {e}")
-    else:
-        flow = create_flow()
-        auth_url, _ = flow.authorization_url(prompt="consent")
-        st.markdown(f"[구글로 로그인하기]({auth_url})", unsafe_allow_html=True)
 
 ###############################################################################
 # GPT 연동 함수
@@ -298,21 +242,12 @@ def community_tab():
 ###############################################################################
 def main():
     st.title("studyhelper")
-    st.write("이 앱은 구글 로그인으로 인증 후, GPT 채팅 / DOCS 분석 / 커뮤니티 기능을 제공합니다.")
+    st.write("이 앱은 GPT 채팅 / DOCS 분석 / 커뮤니티 기능을 제공합니다.")
     st.warning("저작권에 유의하여 파일을 업로드하세요. GPT는 부정확할 수 있으니 중요한 정보는 검증하세요.")
     
-    # 구글 로그인 여부 체크
-    if not st.session_state.get("user_email"):
-        st.info("구글 로그인을 먼저 진행해 주세요.")
-        google_login_flow()
-        return
-    else:
-        st.success(f"로그인됨: {st.session_state['user_email']}")
-        if st.button("로그아웃"):
-            st.session_state["user_email"] = None
-            st.experimental_rerun()
+    # 로그인/로그아웃 제거, 구글 OAuth 제거
     
-    # 로그인 후 메뉴 표시
+    # 사이드바 메뉴 표시
     tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "DOCS 분석", "커뮤니티"))
     
     if tab == "GPT 채팅":
