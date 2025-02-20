@@ -80,12 +80,9 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.0):
         return ""
 
 ###############################################################################
-# 긴 텍스트 -> 청크 분할 (문자 기준) 예시
+# 긴 텍스트 -> 청크 분할 (문자 기준)
 ###############################################################################
 def split_text_into_chunks(text, max_chars=3000):
-    """
-    문자 기준 분할 (실제로는 토큰 기반이 정확).
-    """
     chunks = []
     start_idx = 0
     while start_idx < len(text):
@@ -96,13 +93,11 @@ def split_text_into_chunks(text, max_chars=3000):
     return chunks
 
 ###############################################################################
-# 긴 문서 -> 청크 부분 요약 후 최종 요약(+ 중요문장/질문)
+# 긴 문서 -> 부분 요약 -> 최종 요약(중요문장/질문)
 ###############################################################################
 def docx_global_processing(docx_text):
     """
-    1) text 청크 분할
-    2) 각 청크 부분 요약
-    3) 부분 요약 합쳐 최종 요약(중요문장/질문)
+    문서를 청크로 분할해 부분 요약 후, 최종 요약/중요문장/질문을 생성
     """
     chunks = split_text_into_chunks(docx_text, max_chars=3000)
 
@@ -138,9 +133,6 @@ def docx_global_processing(docx_text):
 
     return final_result
 
-###############################################################################
-# DOCX -> 텍스트
-###############################################################################
 def docx_to_text(upload_file):
     try:
         text = docx2txt.process(BytesIO(upload_file.getvalue()))
@@ -156,23 +148,19 @@ def chat_interface():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # 기존 채팅 표시
     for chat in st.session_state.chat_history:
         role = chat["role"]
         content = chat["message"]
         with st.chat_message(role):
             st.write(content)
 
-    # 새 메시지 입력
     user_chat_input = st.chat_input("메시지를 입력하세요:")
     if user_chat_input:
-        # 사용자 메시지
         st.session_state.chat_history.append({"role": "user", "message": user_chat_input})
         with st.chat_message("user"):
             st.write(user_chat_input)
 
-        # GPT 답변
-        with st.spinner("GPT가 응답 중..."):
+        with st.spinner("GPT가 응답 중입니다..."):
             response = ask_gpt([
                 {"role": "system", "content": "You are a helpful AI assistant."},
                 {"role": "user", "content": user_chat_input}
@@ -183,7 +171,7 @@ def chat_interface():
             st.write(response)
 
 ###############################################################################
-# 커뮤니티 탭
+# 커뮤니티 탭 (이미지 등록 추가)
 ###############################################################################
 def community_tab():
     st.header("커뮤니티 (문제 공유 및 해결책 모색)")
@@ -193,14 +181,26 @@ def community_tab():
     st.subheader("새로운 문제/아이디어 제안하기")
     idea_title = st.text_input("제목", "")
     idea_content = st.text_area("내용 (간략 소개)", "")
+
+    # 이미지 업로드 (여러 장)
+    image_files = st.file_uploader("이미지를 등록하세요 (선택사항)", type=["png","jpg","jpeg"], accept_multiple_files=True)
+
     if st.button("등록"):
         if idea_title.strip() and idea_content.strip():
-            st.session_state.community_ideas.append({
+            images_data = []
+            if image_files:
+                for img in image_files:
+                    images_data.append(img.getvalue())  # 바이트로 저장
+
+            new_idea = {
                 "title": idea_title,
                 "content": idea_content,
-                "comments": []
-            })
+                "comments": [],
+                "images": images_data,
+            }
+            st.session_state.community_ideas.append(new_idea)
             st.success("등록되었습니다!")
+
         else:
             st.warning("제목과 내용을 입력하세요.")
 
@@ -212,6 +212,13 @@ def community_tab():
         for idx, idea in enumerate(st.session_state.community_ideas):
             with st.expander(f"{idx+1}. {idea['title']}"):
                 st.write(f"**내용**: {idea['content']}")
+
+                # 이미지 표시
+                if idea.get("images"):
+                    st.write("### 첨부 이미지")
+                    for img_bytes in idea["images"]:
+                        st.image(img_bytes)
+
                 st.write("### 댓글")
                 if len(idea["comments"]) == 0:
                     st.write("아직 댓글이 없습니다.")
@@ -230,21 +237,19 @@ def community_tab():
                 st.write("---")
 
 ###############################################################################
-# "DOCX 분석" 탭 - 요약+질문 & Q&A
+# DOCX 분석 탭 (문서 요약) - "긴 문서 자동 청크 + 요약/질문" 문구 제거
 ###############################################################################
 def docs_analysis_tab():
-    st.subheader("DOCX 분석 (긴 문서 자동 청크 + 요약/질문)")
+    st.subheader("DOCX 분석 (문서 요약)")
     if "doc_analysis_chat" not in st.session_state:
-        st.session_state.doc_analysis_chat = []  # 문서 기반 Q&A 저장
+        st.session_state.doc_analysis_chat = []
     if "docs_summary" not in st.session_state:
         st.session_state.docs_summary = ""
 
-    # 파일 업로드
     uploaded_file = st.file_uploader("문서를 업로드하세요 (예: docx)", type=["docx"])
     if uploaded_file:
         file_bytes = uploaded_file.getvalue()
         file_hash = hashlib.md5(file_bytes).hexdigest()
-        # 새 파일인지 체크
         if ("uploaded_file_hash" not in st.session_state or
             st.session_state.uploaded_file_hash != file_hash):
             st.session_state.uploaded_file_hash = file_hash
@@ -253,7 +258,7 @@ def docs_analysis_tab():
         if not st.session_state.get("processed"):
             raw_text = docx_to_text(uploaded_file)
             if raw_text.strip():
-                with st.spinner("문서 분석 중 (긴 문서 자동 청크 처리)..."):
+                with st.spinner("문서 분석 중..."):
                     final_summary = docx_global_processing(raw_text)
                     st.session_state["docs_summary"] = final_summary
                     st.success("분석 완료!")
@@ -262,50 +267,15 @@ def docs_analysis_tab():
             st.session_state.processed = True
 
         if st.session_state.get("processed") and st.session_state.docs_summary:
-            st.write("## 분석 결과 (최종 요약 + 중요문장/질문)")
+            st.write("## 분석 결과 (최종 요약)")
             st.write(st.session_state.docs_summary)
-
-            # 여기서부터 "추가 Q&A" 기능
-            st.markdown("---")
-            st.markdown("#### 문서 요약 기반 추가 Q&A")
-            # 기존 대화 표시
-            for entry in st.session_state.doc_analysis_chat:
-                role = entry["role"]
-                content = entry["message"]
-                if role == "user":
-                    st.info(f"사용자: {content}")
-                else:
-                    st.success(f"GPT: {content}")
-
-            # 새 질문 입력
-            q_input = st.text_input("문서 요약에 관해 질문하거나 답을 입력하세요.")
-            if st.button("질문/답변 전송"):
-                if q_input.strip():
-                    # 사용자 질문 추가
-                    st.session_state.doc_analysis_chat.append({"role": "user", "message": q_input})
-                    # GPT에게 요약 + 사용자 질문 전달
-                    with st.spinner("GPT가 응답 중..."):
-                        # system context에 "아래는 문서 요약" 포함
-                        doc_context_system = {
-                            "role": "system",
-                            "content": f"""아래는 분석된 문서의 최종 요약입니다. 이 요약을 참고하여 사용자 질문에 답해 주세요:
-
-{st.session_state.docs_summary}
-"""
-                        }
-                        user_msg = {"role": "user", "content": q_input}
-                        ans = ask_gpt([doc_context_system, user_msg], model_name="gpt-4", temperature=0.0)
-                    st.session_state.doc_analysis_chat.append({"role": "assistant", "message": ans})
-                    st.experimental_rerun()
-                else:
-                    st.warning("질문 내용을 입력하세요.")
 
 ###############################################################################
 # 메인 함수
 ###############################################################################
 def main():
     st.title("studyhelper")
-    st.write("이 앱은 GPT 채팅 / DOCX 분석(긴 문서 청크+요약) / 커뮤니티 기능을 제공합니다. (GPT-4)")
+    st.write("이 앱은 GPT 채팅 / DOCX 분석(문서 요약) / 커뮤니티(이미지 등록) 기능을 제공합니다. (GPT-4)")
     st.warning("GPT는 부정확할 수 있으니 중요한 정보는 별도 검증하세요.")
 
     tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "DOCX 분석", "커뮤니티"))
