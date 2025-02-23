@@ -11,12 +11,12 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 import docx2txt
 
-try:
-    from pptx import Presentation
-    PPTX_ENABLED = True
-except ImportError:
-    st.error("pptx 모듈이 설치되어 있지 않습니다. 'python-pptx' 패키지를 설치해 주세요.")
-    st.stop()
+import pdfplumber
+from pptx import Presentation
+from pptx.slide import Slide
+from pptx.shapes.picture import Picture
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 ###############################################################################
 # NLTK 설정 (stopwords 등)
@@ -69,12 +69,13 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.0):
     messages: [{"role": "system"/"user"/"assistant", "content": "..."}]
     """
     try:
-        response = openai.chat.completions.create(
+        import openai
+        resp = openai.ChatCompletion.create(
             model=model_name,
             messages=messages,
             temperature=temperature,
         )
-        return response.choices[0].message.content.strip()
+        return resp.choices[0].message.content.strip()
     except Exception as e:
         st.error(f"OpenAI API 호출 에러: {e}")
         return ""
@@ -93,18 +94,21 @@ def split_text_into_chunks(text, max_chars=3000):
     return chunks
 
 ###############################################################################
-# 긴 문서 -> 부분 요약 -> 최종 요약(중요문장/질문)
+# 고급 분석 -> 부분 요약 -> 최종 요약(중요문장/질문/핵심단어/관련근거)
+# (docx/ppt/pdf 이미지/밑줄/색상 등도 추가)
 ###############################################################################
-def docx_global_processing(docx_text):
+def advanced_document_processing(full_text, highlights="", images_info=""):
     """
-    문서를 청크로 분할해 부분 요약 후, 최종 요약/중요문장/질문을 생성
+    1) 문서를 청크로 분할해 부분 요약
+    2) 최종 요약 + 중요문장 + 질문 + 핵심단어 + 관련근거(가상의 예시)
+    3) highlights(밑줄/색상)과 images_info(이미지 관련 메모)를 추가로 GPT에게 전달
     """
-    chunks = split_text_into_chunks(docx_text, max_chars=3000)
+    chunks = split_text_into_chunks(full_text, max_chars=3000)
 
     partial_summaries = []
     for i, chunk in enumerate(chunks):
         prompt_chunk = f"""
-        아래는 문서의 일부입니다 (청크 {i+1}/{len(chunks)}).
+        아래는 문서의 일부 내용입니다 (청크 {i+1}/{len(chunks)}).
         ---
         {chunk}
         ---
@@ -117,14 +121,24 @@ def docx_global_processing(docx_text):
         partial_summaries.append(summary)
 
     combined_text = "\n\n".join(partial_summaries)
+    # 최종 분석 프롬프트
     final_prompt = f"""
     아래는 여러 부분 요약을 합친 내용입니다:
     ---
     {combined_text}
+    ---
+    추가 정보:
+    - 밑줄/색상 강조된 문구들:
+    {highlights}
+    - 포함된 이미지 정보:
+    {images_info}
 
-    이 문서를 최종 요약해 주세요.
-    그리고 이 문서에서 가장 중요한 문장 3개를 골라 제시하고,
-    사용자에게 묻고 싶은 질문 2개를 만들어 주세요.
+    위 내용을 종합하여, 다음을 수행해 주세요:
+    1) 문서 전체 요약
+    2) 이 문서에서 가장 중요한 문장 3개
+    3) 사용자에게 묻고 싶은 질문 2개 (Clarifying Questions)
+    4) 이 문서의 핵심 단어(Keywords) 5개
+    5) 관련 근거(References)를 2~3개 만들어 제시 (가상 가능)
     """
     final_result = ask_gpt([
         {"role": "system", "content": "You are a helpful assistant."},
@@ -133,16 +147,84 @@ def docx_global_processing(docx_text):
 
     return final_result
 
-def docx_to_text(upload_file):
+###############################################################################
+# 파일 파싱 함수들 (DOCX / PDF / PPT)
+###############################################################################
+def parse_docx(file_bytes):
     try:
-        text = docx2txt.process(BytesIO(upload_file.getvalue()))
+        text = docx2txt.process(BytesIO(file_bytes))
         return text if text else ""
     except Exception as e:
         st.error(f"DOCX 파일 처리 오류: {e}")
         return ""
 
+def parse_pdf(file_bytes):
+    """pdfplumber 이용하여 페이지별 텍스트 추출 및 이미지 정보 수집."""
+    text_list = []
+    images_info = []
+    try:
+        with pdfplumber.open(BytesIO(file_bytes)) as pdf:
+            for i, page in enumerate(pdf.pages):
+                # 텍스트
+                page_text = page.extract_text() or ""
+                text_list.append(page_text)
+                # 이미지
+                # pdfplumber에서 이미지 자체를 추출하기 위해선 .to_image() 등 활용
+                # 여기서는 단순히 좌표만 예시로 표시
+                if page.images:
+                    for img in page.images:
+                        # img = {"x0", "y0", "x1", "y1", "width", "height"}
+                        images_info.append(f"PDF Page {i+1} 이미지: {img}")
+    except Exception as e:
+        st.error(f"PDF 파일 처리 오류: {e}")
+    return "\n".join(text_list), images_info
+
+def parse_ppt(file_bytes):
+    """python-pptx를 이용하여 PPT 텍스트 + (밑줄/색상) + 이미지 정보를 추출."""
+    highlights = []
+    images_info = []
+    text_runs = []
+    try:
+        prs = Presentation(BytesIO(file_bytes))
+        for slide_idx, slide in enumerate(prs.slides):
+            for shape in slide.shapes:
+                # 텍스트 상자/플레이스홀더
+                if shape.has_text_frame:
+                    for paragraph in shape.text_frame.paragraphs:
+                        for run in paragraph.runs:
+                            run_text = run.text
+                            if run.font.underline:
+                                # 밑줄 처리된 텍스트
+                                highlights.append(
+                                    f"[슬라이드 {slide_idx+1}] 밑줄: {run_text}"
+                                )
+                            if run.font.color and run.font.color.rgb:
+                                # 색상이 있는 텍스트
+                                color_str = run.font.color.rgb
+                                highlights.append(
+                                    f"[슬라이드 {slide_idx+1}] 색상({color_str}): {run_text}"
+                                )
+                            # 전체 텍스트 수집
+                            text_runs.append(run_text)
+
+                # 이미지(Picture)
+                if shape.shape_type == MSO_SHAPE_TYPE.PICTURE and isinstance(shape, Picture):
+                    # shape.image.blob 등으로 접근 가능
+                    width = shape.width
+                    height = shape.height
+                    images_info.append(f"[슬라이드 {slide_idx+1}] 이미지(Picture) 크기: {width}x{height}")
+    except Exception as e:
+        st.error(f"PPT 파일 처리 오류: {e}")
+
+    # PPT 전체 텍스트
+    full_text = "\n".join(text_runs)
+    # 밑줄, 색상 정보
+    highlight_str = "\n".join(highlights)
+
+    return full_text, highlight_str, images_info
+
 ###############################################################################
-# GPT 채팅 인터페이스
+# GPT 채팅 인터페이스 (기존)
 ###############################################################################
 def chat_interface():
     if "chat_history" not in st.session_state:
@@ -171,7 +253,7 @@ def chat_interface():
             st.write(response)
 
 ###############################################################################
-# 커뮤니티 탭 (이미지 등록 추가)
+# 커뮤니티 탭 (이미지 등록 유지)
 ###############################################################################
 def community_tab():
     st.header("커뮤니티 (문제 공유 및 해결책 모색)")
@@ -182,7 +264,7 @@ def community_tab():
     idea_title = st.text_input("제목", "")
     idea_content = st.text_area("내용 (간략 소개)", "")
 
-    # 이미지 업로드 (여러 장)
+    # 여러 이미지를 업로드 가능
     image_files = st.file_uploader("이미지를 등록하세요 (선택사항)", type=["png","jpg","jpeg"], accept_multiple_files=True)
 
     if st.button("등록"):
@@ -237,54 +319,89 @@ def community_tab():
                 st.write("---")
 
 ###############################################################################
-# DOCX 분석 탭 (문서 요약) - "긴 문서 자동 청크 + 요약/질문" 문구 제거
+# 확장된 DOCS(파일) 분석 탭
+# 1) docx, ppt, pdf 모두 지원
+# 2) 이미지 / 밑줄 / 색상 강조 / 핵심단어 / Clarifying questions 등
 ###############################################################################
 def docs_analysis_tab():
-    st.subheader("DOCX 분석 (문서 요약)")
-    if "doc_analysis_chat" not in st.session_state:
-        st.session_state.doc_analysis_chat = []
-    if "docs_summary" not in st.session_state:
-        st.session_state.docs_summary = ""
+    st.subheader("파일 분석 (DOCX / PDF / PPT)")
 
-    uploaded_file = st.file_uploader("문서를 업로드하세요 (예: docx)", type=["docx"])
+    if "processed_result" not in st.session_state:
+        st.session_state.processed_result = ""
+
+    uploaded_file = st.file_uploader("파일을 업로드하세요 (docx, pdf, pptx)", type=["docx","pdf","pptx"])
     if uploaded_file:
         file_bytes = uploaded_file.getvalue()
         file_hash = hashlib.md5(file_bytes).hexdigest()
+
+        # 매번 새 파일 업로드 시 처리 리셋
         if ("uploaded_file_hash" not in st.session_state or
             st.session_state.uploaded_file_hash != file_hash):
             st.session_state.uploaded_file_hash = file_hash
+            st.session_state.processed_result = ""
             st.session_state.processed = False
 
         if not st.session_state.get("processed"):
-            raw_text = docx_to_text(uploaded_file)
-            if raw_text.strip():
-                with st.spinner("문서 분석 중..."):
-                    final_summary = docx_global_processing(raw_text)
-                    st.session_state["docs_summary"] = final_summary
-                    st.success("분석 완료!")
-            else:
-                st.error("텍스트를 추출할 수 없습니다.")
-            st.session_state.processed = True
+            extension = uploaded_file.name.split(".")[-1].lower()
 
-        if st.session_state.get("processed") and st.session_state.docs_summary:
-            st.write("## 분석 결과 (최종 요약)")
-            st.write(st.session_state.docs_summary)
+            # 공통 분석할 텍스트, 하이라이트, 이미지 정보
+            merged_text = ""
+            highlight_text = ""
+            images_info = ""
+
+            with st.spinner("파일 분석 중..."):
+                if extension == "docx":
+                    raw_text = parse_docx(file_bytes)
+                    merged_text = raw_text
+                elif extension == "pdf":
+                    raw_text, pdf_images = parse_pdf(file_bytes)
+                    merged_text = raw_text
+                    images_info = "\n".join(str(i) for i in pdf_images)
+                elif extension == "pptx":
+                    ppt_text, ppt_highlights, ppt_images = parse_ppt(file_bytes)
+                    merged_text = ppt_text
+                    highlight_text = ppt_highlights
+                    images_info = "\n".join(str(i) for i in ppt_images)
+                else:
+                    st.error("지원하지 않는 파일 형식입니다.")
+                    return
+
+                # 실제 텍스트가 있으면 GPT에 보냄
+                if merged_text.strip():
+                    final_summary = advanced_document_processing(
+                        full_text=merged_text,
+                        highlights=highlight_text,
+                        images_info=images_info
+                    )
+                    st.session_state.processed_result = final_summary
+                    st.session_state.processed = True
+                else:
+                    st.error("문서 텍스트를 추출할 수 없습니다.")
+                    st.session_state.processed = True
+
+        # 처리된 결과 표시
+        if st.session_state.get("processed") and st.session_state.processed_result:
+            st.write("## 분석 결과")
+            st.write(st.session_state.processed_result)
 
 ###############################################################################
 # 메인 함수
 ###############################################################################
 def main():
-    st.title("studyhelper")
-    st.write("이 앱은 GPT 채팅 / DOCX 분석(문서 요약) / 커뮤니티(이미지 등록) 기능을 제공합니다. (GPT-4)")
-    st.warning("GPT는 부정확할 수 있으니 중요한 정보는 별도 검증하세요.")
+    st.title("studyhelper (Extended)")
+    st.write("""
+    GPT 채팅 / DOCX + PDF + PPT 분석 / 커뮤니티(이미지 등록) 기능을 제공합니다. (GPT-4)
+    - 밑줄 / 색상 강조 / 이미지 정보도 함께 GPT에 전달 (PPT, PDF)
+    - GPT가 요약, Clarifying Questions, 핵심단어, 가상의 References 등 생성
+    """)
 
-    tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "DOCX 분석", "커뮤니티"))
+    tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "파일 분석", "커뮤니티"))
 
     if tab == "GPT 채팅":
         st.subheader("GPT 채팅")
         chat_interface()
 
-    elif tab == "DOCX 분석":
+    elif tab == "파일 분석":
         docs_analysis_tab()
 
     elif tab == "커뮤니티":
@@ -292,6 +409,7 @@ def main():
         community_tab()
 
     st.write("---")
+    st.info("GPT 응답은 실제 정보를 보장하지 않을 수 있으니, 참고용으로만 활용하세요.")
 
 if __name__ == "__main__":
     main()
