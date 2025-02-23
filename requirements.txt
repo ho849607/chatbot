@@ -1,36 +1,32 @@
-# Streamlit 기본
-streamlit
+# Streamlit
+streamlit>=1.20.0
 
 # 환경 변수 (.env) 로드
-python-dotenv
+python-dotenv>=0.21.0
 
-# OpenAI API
-openai
+# OpenAI API (마이그레이션 문구 없이 최신 버전 사용)
+openai>=1.0.0
 
-# 문서 처리
-docx2txt   # DOCX 텍스트 추출
-pdfplumber # PDF 텍스트 추출 (필요 시)
-python-pptx  # PPTX 처리
-pytesseract  # 이미지 OCR (필요 시)
-paddleocr    # 이미지 OCR 대안 (필요 시)
+# 문서 처리 (DOCX, PDF, PPT)
+docx2txt>=0.8
+pdfplumber>=0.9.0
+python-pptx>=0.6.21
+
+# OCR 라이브러리 (선택 사용)
+pytesseract
+paddleocr
 
 # NLP
-nltk
+nltk>=3.8
 
 # 이미지/배열 처리
 opencv-python
 Pillow
 numpy
 
-# 기타
-protobuf  # gRPC/protobuf 버전 맞추기 (일부 라이브러리와 충돌 방지)
-
+# 기타 (protobuf 버전 충돌 방지용 등)
+protobuf
 google-auth-oauthlib
 
-
-# langchain, chromadb 등도 쓰고 싶다면 추가
-# langchain
-# chromadb
-# tiktoken
-protobuf
+# Streamlit에서 그리기 캔버스
 streamlit-drawable-canvas
