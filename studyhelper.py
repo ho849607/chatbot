@@ -163,14 +163,13 @@ def parse_pdf(file_bytes):
     text_list = []
     images_info = []
     try:
+        import pdfplumber
         with pdfplumber.open(BytesIO(file_bytes)) as pdf:
             for i, page in enumerate(pdf.pages):
                 # 텍스트
                 page_text = page.extract_text() or ""
                 text_list.append(page_text)
                 # 이미지
-                # pdfplumber에서 이미지 자체를 추출하기 위해선 .to_image() 등 활용
-                # 여기서는 단순히 좌표만 예시로 표시
                 if page.images:
                     for img in page.images:
                         # img = {"x0", "y0", "x1", "y1", "width", "height"}
@@ -209,7 +208,6 @@ def parse_ppt(file_bytes):
 
                 # 이미지(Picture)
                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE and isinstance(shape, Picture):
-                    # shape.image.blob 등으로 접근 가능
                     width = shape.width
                     height = shape.height
                     images_info.append(f"[슬라이드 {slide_idx+1}] 이미지(Picture) 크기: {width}x{height}")
@@ -253,7 +251,7 @@ def chat_interface():
             st.write(response)
 
 ###############################################################################
-# 커뮤니티 탭 (이미지 등록 유지)
+# 커뮤니티 탭 (이미지 등록)
 ###############################################################################
 def community_tab():
     st.header("커뮤니티 (문제 공유 및 해결책 모색)")
@@ -320,8 +318,6 @@ def community_tab():
 
 ###############################################################################
 # 확장된 DOCS(파일) 분석 탭
-# 1) docx, ppt, pdf 모두 지원
-# 2) 이미지 / 밑줄 / 색상 강조 / 핵심단어 / Clarifying questions 등
 ###############################################################################
 def docs_analysis_tab():
     st.subheader("파일 분석 (DOCX / PDF / PPT)")
@@ -385,17 +381,157 @@ def docs_analysis_tab():
             st.write(st.session_state.processed_result)
 
 ###############################################################################
+# 퀴즈 탭 (예시)
+###############################################################################
+def quiz_tab():
+    st.subheader("퀴즈 (문서 기반 / 사용자 입력)")
+
+    # 퀴즈용 저장소
+    if "quiz_data" not in st.session_state:
+        st.session_state.quiz_data = []
+    if "quiz_user_answers" not in st.session_state:
+        st.session_state.quiz_user_answers = []
+
+    # 사용자가 직접 텍스트를 입력하거나, 이미 분석된 문서 요약을 선택할 수 있음
+    quiz_mode = st.radio("퀴즈 생성 방식 선택", ("문서 요약 기반", "직접 입력"))
+    
+    # 퀴즈 생성
+    if quiz_mode == "문서 요약 기반":
+        # 문서 분석 탭에서 처리된 결과
+        doc_summary = st.session_state.get("processed_result", "")
+        if not doc_summary:
+            st.warning("먼저 [파일 분석] 탭에서 문서를 업로드하고 요약을 생성하세요.")
+        else:
+            if st.button("문서 요약 기반 퀴즈 생성"):
+                with st.spinner("GPT가 퀴즈를 생성 중입니다..."):
+                    # GPT에게 퀴즈 생성 요청 (JSON 형태)
+                    prompt = f"""
+                    아래 내용 기반으로 3개의 객관식 문제와 정답을 JSON 형태로 만들어줘.
+                    예시 포맷: 
+                    [
+                        {{"question": "...", "options": ["A) ...", "B) ..."], "answer": "A"}}
+                    ]
+                    내용: {doc_summary}
+                    """
+                    quiz_response = ask_gpt([
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt.strip()}
+                    ], model_name="gpt-4", temperature=0.7)
+
+                # JSON 파싱
+                import json
+                try:
+                    quiz_data = json.loads(quiz_response)
+                    st.session_state.quiz_data = quiz_data
+                    st.session_state.quiz_user_answers = [""] * len(quiz_data)
+                    st.success("퀴즈가 생성되었습니다!")
+                except Exception as e:
+                    st.error("퀴즈 생성에 실패했습니다. GPT 응답을 확인하세요.")
+                    st.write(quiz_response)
+
+    else:  # 직접 입력
+        user_text = st.text_area("퀴즈 생성에 사용할 텍스트 입력", "")
+        if st.button("사용자 텍스트 기반 퀴즈 생성"):
+            if user_text.strip():
+                with st.spinner("GPT가 퀴즈를 생성 중입니다..."):
+                    prompt = f"""
+                    아래 내용 기반으로 3개의 객관식 문제와 정답을 JSON 형태로 만들어줘.
+                    예시 포맷: 
+                    [
+                        {{"question": "...", "options": ["A) ...", "B) ..."], "answer": "A"}}
+                    ]
+                    내용: {user_text}
+                    """
+                    quiz_response = ask_gpt([
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt.strip()}
+                    ], model_name="gpt-4", temperature=0.7)
+
+                # JSON 파싱
+                import json
+                try:
+                    quiz_data = json.loads(quiz_response)
+                    st.session_state.quiz_data = quiz_data
+                    st.session_state.quiz_user_answers = [""] * len(quiz_data)
+                    st.success("퀴즈가 생성되었습니다!")
+                except Exception as e:
+                    st.error("퀴즈 생성에 실패했습니다. GPT 응답을 확인하세요.")
+                    st.write(quiz_response)
+            else:
+                st.warning("텍스트를 입력하세요.")
+
+    st.write("---")
+
+    # 생성된 퀴즈 보여주기
+    quiz_data = st.session_state.quiz_data
+    if quiz_data:
+        st.write("### 생성된 퀴즈")
+        for i, q in enumerate(quiz_data):
+            st.write(f"**Q{i+1}.** {q.get('question')}")
+            options = q.get("options", [])
+            if not options:
+                st.write("*보기 없음*")
+            else:
+                for opt in options:
+                    st.write(f"- {opt}")
+
+            # 사용자 답 입력
+            user_answer = st.text_input("정답 입력 (예: A, B, ...)", key=f"quiz_answer_{i}")
+            st.session_state.quiz_user_answers[i] = user_answer
+
+        if st.button("정답 채점"):
+            with st.spinner("GPT가 답안 채점 중..."):
+                # GPT에게 정답 여부를 물어볼 수도 있고,
+                # quiz_data에 있는 answer 필드와 직접 비교할 수도 있음
+                # 여기서는 간단히 GPT에게 판단을 맡기는 예시
+                # (quiz_data + user_answers를 GPT에게 넘김)
+                import json
+                combined_quiz_info = []
+                for i, q in enumerate(quiz_data):
+                    combined_quiz_info.append({
+                        "question": q.get("question", ""),
+                        "options": q.get("options", []),
+                        "correct_answer": q.get("answer", ""),
+                        "user_answer": st.session_state.quiz_user_answers[i]
+                    })
+
+                grading_prompt = f"""
+                아래는 사용자 퀴즈 제출 결과입니다.
+                JSON 배열 형식: 
+                [
+                    {{
+                        "question": "...",
+                        "options": ["A) ...", "B) ..."],
+                        "correct_answer": "A",
+                        "user_answer": "B"
+                    }},
+                    ...
+                ]
+                채점해 주세요. 각 문항마다 맞았는지/틀렸는지, 그리고 해설을 알려주세요.
+
+                {json.dumps(combined_quiz_info, ensure_ascii=False)}
+                """
+                grading_response = ask_gpt([
+                    {"role": "system", "content": "You are a helpful assistant, good at grading quizzes."},
+                    {"role": "user", "content": grading_prompt.strip()}
+                ], model_name="gpt-4", temperature=0.0)
+
+            st.write("### 채점 결과")
+            st.write(grading_response)
+
+###############################################################################
 # 메인 함수
 ###############################################################################
 def main():
-    st.title("studyhelper (Extended)")
+    st.title("studyhelper (Extended + 퀴즈)")
     st.write("""
-    GPT 채팅 / DOCX + PDF + PPT 분석 / 커뮤니티(이미지 등록) 기능을 제공합니다. (GPT-4)
-    - 밑줄 / 색상 강조 / 이미지 정보도 함께 GPT에 전달 (PPT, PDF)
-    - GPT가 요약, Clarifying Questions, 핵심단어, 가상의 References 등 생성
+    GPT 채팅 / DOCX + PDF + PPT 분석 / 커뮤니티(이미지 등록) / 퀴즈 기능을 제공합니다. (GPT-4)
+    - 밑줄 / 색상 강조 / 이미지 정보도 GPT에 전달 (PPT, PDF)
+    - GPT가 요약, Clarifying Questions, 핵심단어, 가상의 References 등을 생성
+    - 문서 요약 혹은 사용자 입력으로 퀴즈를 생성하고, GPT에게 채점 가능
     """)
 
-    tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "파일 분석", "커뮤니티"))
+    tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "파일 분석", "커뮤니티", "퀴즈"))
 
     if tab == "GPT 채팅":
         st.subheader("GPT 채팅")
@@ -407,6 +543,9 @@ def main():
     elif tab == "커뮤니티":
         st.subheader("커뮤니티")
         community_tab()
+
+    elif tab == "퀴즈":
+        quiz_tab()
 
     st.write("---")
     st.info("GPT 응답은 실제 정보를 보장하지 않을 수 있으니, 참고용으로만 활용하세요.")
