@@ -62,12 +62,9 @@ if not OPENAI_API_KEY:
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# (openai>=1.0.0) ChatCompletion 함수
+# GPT 함수
 ###############################################################################
-def ask_gpt(messages, model_name="gpt-4", temperature=0.0):
-    """
-    messages: [{"role": "system"/"user"/"assistant", "content": "..."}]
-    """
+def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     try:
         import openai
         resp = openai.ChatCompletion.create(
@@ -81,76 +78,9 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.0):
         return ""
 
 ###############################################################################
-# 긴 텍스트 -> 청크 분할 (문자 기준)
+# 파일 파싱 함수 (docx, pdf, pptx)
 ###############################################################################
-def split_text_into_chunks(text, max_chars=3000):
-    chunks = []
-    start_idx = 0
-    while start_idx < len(text):
-        end_idx = min(start_idx + max_chars, len(text))
-        chunk = text[start_idx:end_idx]
-        chunks.append(chunk)
-        start_idx = end_idx
-    return chunks
-
-###############################################################################
-# 고급 분석 -> 부분 요약 -> 최종 요약(중요문장/질문/핵심단어/관련근거)
-# (docx/ppt/pdf 이미지/밑줄/색상 등도 추가)
-###############################################################################
-def advanced_document_processing(full_text, highlights="", images_info=""):
-    """
-    1) 문서를 청크로 분할해 부분 요약
-    2) 최종 요약 + 중요문장 + 질문 + 핵심단어 + 관련근거(가상의 예시)
-    3) highlights(밑줄/색상)과 images_info(이미지 관련 메모)를 추가로 GPT에게 전달
-    """
-    chunks = split_text_into_chunks(full_text, max_chars=3000)
-
-    partial_summaries = []
-    for i, chunk in enumerate(chunks):
-        prompt_chunk = f"""
-        아래는 문서의 일부 내용입니다 (청크 {i+1}/{len(chunks)}).
-        ---
-        {chunk}
-        ---
-        이 텍스트를 간단히 요약해 주세요.
-        """
-        summary = ask_gpt([
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt_chunk.strip()},
-        ], model_name="gpt-4")
-        partial_summaries.append(summary)
-
-    combined_text = "\n\n".join(partial_summaries)
-    # 최종 분석 프롬프트
-    final_prompt = f"""
-    아래는 여러 부분 요약을 합친 내용입니다:
-    ---
-    {combined_text}
-    ---
-    추가 정보:
-    - 밑줄/색상 강조된 문구들:
-    {highlights}
-    - 포함된 이미지 정보:
-    {images_info}
-
-    위 내용을 종합하여, 다음을 수행해 주세요:
-    1) 문서 전체 요약
-    2) 이 문서에서 가장 중요한 문장 3개
-    3) 사용자에게 묻고 싶은 질문 2개 (Clarifying Questions)
-    4) 이 문서의 핵심 단어(Keywords) 5개
-    5) 관련 근거(References)를 2~3개 만들어 제시 (가상 가능)
-    """
-    final_result = ask_gpt([
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": final_prompt.strip()},
-    ], model_name="gpt-4")
-
-    return final_result
-
-###############################################################################
-# 파일 파싱 함수들 (DOCX / PDF / PPT)
-###############################################################################
-def parse_docx(file_bytes):
+def parse_docx(file_bytes: bytes) -> str:
     try:
         text = docx2txt.process(BytesIO(file_bytes))
         return text if text else ""
@@ -158,28 +88,23 @@ def parse_docx(file_bytes):
         st.error(f"DOCX 파일 처리 오류: {e}")
         return ""
 
-def parse_pdf(file_bytes):
-    """pdfplumber 이용하여 페이지별 텍스트 추출 및 이미지 정보 수집."""
+def parse_pdf(file_bytes: bytes):
     text_list = []
     images_info = []
     try:
-        import pdfplumber
         with pdfplumber.open(BytesIO(file_bytes)) as pdf:
             for i, page in enumerate(pdf.pages):
-                # 텍스트
                 page_text = page.extract_text() or ""
                 text_list.append(page_text)
-                # 이미지
+                # 이미지 메타데이터 예시
                 if page.images:
                     for img in page.images:
-                        # img = {"x0", "y0", "x1", "y1", "width", "height"}
                         images_info.append(f"PDF Page {i+1} 이미지: {img}")
     except Exception as e:
         st.error(f"PDF 파일 처리 오류: {e}")
     return "\n".join(text_list), images_info
 
-def parse_ppt(file_bytes):
-    """python-pptx를 이용하여 PPT 텍스트 + (밑줄/색상) + 이미지 정보를 추출."""
+def parse_ppt(file_bytes: bytes):
     highlights = []
     images_info = []
     text_runs = []
@@ -187,74 +112,148 @@ def parse_ppt(file_bytes):
         prs = Presentation(BytesIO(file_bytes))
         for slide_idx, slide in enumerate(prs.slides):
             for shape in slide.shapes:
-                # 텍스트 상자/플레이스홀더
+                # 텍스트 상자
                 if shape.has_text_frame:
                     for paragraph in shape.text_frame.paragraphs:
                         for run in paragraph.runs:
                             run_text = run.text
                             if run.font.underline:
-                                # 밑줄 처리된 텍스트
-                                highlights.append(
-                                    f"[슬라이드 {slide_idx+1}] 밑줄: {run_text}"
-                                )
+                                highlights.append(f"[슬라이드 {slide_idx+1}] 밑줄: {run_text}")
                             if run.font.color and run.font.color.rgb:
-                                # 색상이 있는 텍스트
                                 color_str = run.font.color.rgb
-                                highlights.append(
-                                    f"[슬라이드 {slide_idx+1}] 색상({color_str}): {run_text}"
-                                )
-                            # 전체 텍스트 수집
+                                highlights.append(f"[슬라이드 {slide_idx+1}] 색상({color_str}): {run_text}")
                             text_runs.append(run_text)
-
-                # 이미지(Picture)
+                # 이미지
                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE and isinstance(shape, Picture):
-                    width = shape.width
-                    height = shape.height
-                    images_info.append(f"[슬라이드 {slide_idx+1}] 이미지(Picture) 크기: {width}x{height}")
+                    width, height = shape.width, shape.height
+                    images_info.append(f"[슬라이드 {slide_idx+1}] 이미지 크기: {width}x{height}")
     except Exception as e:
         st.error(f"PPT 파일 처리 오류: {e}")
 
-    # PPT 전체 텍스트
-    full_text = "\n".join(text_runs)
-    # 밑줄, 색상 정보
-    highlight_str = "\n".join(highlights)
-
-    return full_text, highlight_str, images_info
+    return "\n".join(text_runs), "\n".join(highlights), "\n".join(images_info)
 
 ###############################################################################
-# GPT 채팅 인터페이스 (기존)
+# 자동 분석 + 요약 + 핵심단어 + GPT가 사용자에게 질문 등
+###############################################################################
+def analyze_file(file_bytes: bytes, filename: str):
+    """
+    파일 업로드 시 자동 호출. 문서 내용을 파싱하고,
+    요약/핵심단어/근거/추가 질문(혹은 퀴즈) 등 GPT 메시지를 구성.
+    """
+    extension = filename.split(".")[-1].lower()
+
+    raw_text = ""
+    highlight_text = ""
+    images_info = []
+
+    # 파일 파싱
+    if extension == "docx":
+        raw_text = parse_docx(file_bytes)
+    elif extension == "pdf":
+        pdf_text, pdf_imgs = parse_pdf(file_bytes)
+        raw_text = pdf_text
+        images_info = pdf_imgs
+    elif extension == "pptx":
+        ppt_text, ppt_highlights, ppt_imgs = parse_ppt(file_bytes)
+        raw_text = ppt_text
+        highlight_text = ppt_highlights
+        images_info = ppt_imgs
+    else:
+        st.error("지원하지 않는 파일 형식입니다.")
+        return
+
+    if not raw_text.strip():
+        st.warning("문서에서 텍스트를 추출할 수 없습니다.")
+        return
+
+    # GPT에 넘길 추가정보 (밑줄, 색상, 이미지)
+    images_str = "\n".join(images_info)
+    # 간단히 요청 프롬프트
+    prompt = f"""
+    다음은 업로드된 문서의 텍스트입니다:
+    ---
+    {raw_text}
+    ---
+    밑줄/색상 정보:
+    {highlight_text}
+
+    이미지 정보:
+    {images_str}
+
+    위 문서를 분석해 주세요.
+    1) 문서 요약
+    2) 핵심단어 5개
+    3) 관련 근거(References) 2~3개 (가상의 예시 가능)
+    4) 사용자에게 묻고 싶은 질문(혹은 퀴즈 형식) 2~3개
+    모두 한국어로 답해 주세요.
+    """
+    # 메시지로 chat_history에 추가 + GPT 답변 받기
+    st.session_state.chat_history.append({
+        "role": "system",
+        "message": "업로드된 파일을 분석합니다."
+    })
+
+    with st.spinner("GPT가 문서를 분석 중입니다..."):
+        response = ask_gpt([
+            {"role": "system", "content": "당신은 유용한 AI 비서입니다."},
+            {"role": "user", "content": prompt.strip()}
+        ], model_name="gpt-4", temperature=0.7)
+
+    # 결과를 Chat 메시지로 추가
+    st.session_state.chat_history.append({
+        "role": "assistant",
+        "message": response
+    })
+
+###############################################################################
+# GPT 채팅창
 ###############################################################################
 def chat_interface():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
+    # 채팅 UI: 기존 chat_history 출력
     for chat in st.session_state.chat_history:
         role = chat["role"]
         content = chat["message"]
         with st.chat_message(role):
             st.write(content)
 
+    # 사용자가 새로 입력
     user_chat_input = st.chat_input("메시지를 입력하세요:")
     if user_chat_input:
-        st.session_state.chat_history.append({"role": "user", "message": user_chat_input})
+        # 채팅 히스토리에 사용자 메시지 추가
+        st.session_state.chat_history.append({
+            "role": "user",
+            "message": user_chat_input
+        })
         with st.chat_message("user"):
             st.write(user_chat_input)
 
-        with st.spinner("GPT가 응답 중입니다..."):
+        # GPT 응답
+        with st.spinner("GPT가 응답 중..."):
             response = ask_gpt([
-                {"role": "system", "content": "You are a helpful AI assistant."},
-                {"role": "user", "content": user_chat_input}
+                {"role": "system", "content": "당신은 유용한 AI 비서입니다."},
+                *[
+                    {"role": msg["role"], "content": msg["message"]}
+                    for msg in st.session_state.chat_history
+                    if msg["role"] in ("user", "assistant")
+                ],
             ], model_name="gpt-4")
 
-        st.session_state.chat_history.append({"role": "assistant", "message": response})
+        st.session_state.chat_history.append({
+            "role": "assistant",
+            "message": response
+        })
         with st.chat_message("assistant"):
             st.write(response)
 
 ###############################################################################
-# 커뮤니티 탭 (이미지 등록)
+# 커뮤니티 탭
 ###############################################################################
 def community_tab():
     st.header("커뮤니티 (문제 공유 및 해결책 모색)")
+
     if "community_ideas" not in st.session_state:
         st.session_state.community_ideas = []
 
@@ -270,7 +269,7 @@ def community_tab():
             images_data = []
             if image_files:
                 for img in image_files:
-                    images_data.append(img.getvalue())  # 바이트로 저장
+                    images_data.append(img.getvalue())
 
             new_idea = {
                 "title": idea_title,
@@ -280,7 +279,6 @@ def community_tab():
             }
             st.session_state.community_ideas.append(new_idea)
             st.success("등록되었습니다!")
-
         else:
             st.warning("제목과 내용을 입력하세요.")
 
@@ -293,7 +291,6 @@ def community_tab():
             with st.expander(f"{idx+1}. {idea['title']}"):
                 st.write(f"**내용**: {idea['content']}")
 
-                # 이미지 표시
                 if idea.get("images"):
                     st.write("### 첨부 이미지")
                     for img_bytes in idea["images"]:
@@ -317,238 +314,43 @@ def community_tab():
                 st.write("---")
 
 ###############################################################################
-# 확장된 DOCS(파일) 분석 탭
+# 메인
 ###############################################################################
-def docs_analysis_tab():
-    st.subheader("파일 분석 (DOCX / PDF / PPT)")
+def main():
+    st.title("studyhelper (자동 분석 + GPT 채팅 + 커뮤니티)")
 
-    if "processed_result" not in st.session_state:
-        st.session_state.processed_result = ""
+    # 간단 안내
+    st.write("""
+    - **파일 업로드**: 업로드하는 즉시 문서 내용 분석 + GPT가 자동 요약/질문/퀴즈 제시
+    - **GPT 채팅**: 문서 관련 추가 질문이나 일반 대화 가능
+    - **커뮤니티**: 다른 사용자와 문제/아이디어 공유
+    """)
 
+    # 파일 업로드 (자동 분석)
     uploaded_file = st.file_uploader("파일을 업로드하세요 (docx, pdf, pptx)", type=["docx","pdf","pptx"])
     if uploaded_file:
         file_bytes = uploaded_file.getvalue()
         file_hash = hashlib.md5(file_bytes).hexdigest()
+        # 이전에 처리한 파일과 다르면 새로 분석
+        if ("current_file_hash" not in st.session_state or 
+            st.session_state.current_file_hash != file_hash):
+            st.session_state.current_file_hash = file_hash
+            # chat_history 초기화 혹은 유지 여부 결정
+            # 여기서는 유지하지만, 완전히 새로 시작하려면 chat_history = []로 세팅
+            analyze_file(file_bytes, uploaded_file.name)
+            st.success("문서 분석 완료! 아래 GPT 채팅 영역에서 대화를 이어가 보세요.")
 
-        # 매번 새 파일 업로드 시 처리 리셋
-        if ("uploaded_file_hash" not in st.session_state or
-            st.session_state.uploaded_file_hash != file_hash):
-            st.session_state.uploaded_file_hash = file_hash
-            st.session_state.processed_result = ""
-            st.session_state.processed = False
+    # GPT 채팅 인터페이스
+    st.markdown("---")
+    st.header("GPT 채팅")
+    chat_interface()
 
-        if not st.session_state.get("processed"):
-            extension = uploaded_file.name.split(".")[-1].lower()
-
-            # 공통 분석할 텍스트, 하이라이트, 이미지 정보
-            merged_text = ""
-            highlight_text = ""
-            images_info = ""
-
-            with st.spinner("파일 분석 중..."):
-                if extension == "docx":
-                    raw_text = parse_docx(file_bytes)
-                    merged_text = raw_text
-                elif extension == "pdf":
-                    raw_text, pdf_images = parse_pdf(file_bytes)
-                    merged_text = raw_text
-                    images_info = "\n".join(str(i) for i in pdf_images)
-                elif extension == "pptx":
-                    ppt_text, ppt_highlights, ppt_images = parse_ppt(file_bytes)
-                    merged_text = ppt_text
-                    highlight_text = ppt_highlights
-                    images_info = "\n".join(str(i) for i in ppt_images)
-                else:
-                    st.error("지원하지 않는 파일 형식입니다.")
-                    return
-
-                # 실제 텍스트가 있으면 GPT에 보냄
-                if merged_text.strip():
-                    final_summary = advanced_document_processing(
-                        full_text=merged_text,
-                        highlights=highlight_text,
-                        images_info=images_info
-                    )
-                    st.session_state.processed_result = final_summary
-                    st.session_state.processed = True
-                else:
-                    st.error("문서 텍스트를 추출할 수 없습니다.")
-                    st.session_state.processed = True
-
-        # 처리된 결과 표시
-        if st.session_state.get("processed") and st.session_state.processed_result:
-            st.write("## 분석 결과")
-            st.write(st.session_state.processed_result)
-
-###############################################################################
-# 퀴즈 탭 (예시)
-###############################################################################
-def quiz_tab():
-    st.subheader("퀴즈 (문서 기반 / 사용자 입력)")
-
-    # 퀴즈용 저장소
-    if "quiz_data" not in st.session_state:
-        st.session_state.quiz_data = []
-    if "quiz_user_answers" not in st.session_state:
-        st.session_state.quiz_user_answers = []
-
-    # 사용자가 직접 텍스트를 입력하거나, 이미 분석된 문서 요약을 선택할 수 있음
-    quiz_mode = st.radio("퀴즈 생성 방식 선택", ("문서 요약 기반", "직접 입력"))
-    
-    # 퀴즈 생성
-    if quiz_mode == "문서 요약 기반":
-        # 문서 분석 탭에서 처리된 결과
-        doc_summary = st.session_state.get("processed_result", "")
-        if not doc_summary:
-            st.warning("먼저 [파일 분석] 탭에서 문서를 업로드하고 요약을 생성하세요.")
-        else:
-            if st.button("문서 요약 기반 퀴즈 생성"):
-                with st.spinner("GPT가 퀴즈를 생성 중입니다..."):
-                    # GPT에게 퀴즈 생성 요청 (JSON 형태)
-                    prompt = f"""
-                    아래 내용 기반으로 3개의 객관식 문제와 정답을 JSON 형태로 만들어줘.
-                    예시 포맷: 
-                    [
-                        {{"question": "...", "options": ["A) ...", "B) ..."], "answer": "A"}}
-                    ]
-                    내용: {doc_summary}
-                    """
-                    quiz_response = ask_gpt([
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": prompt.strip()}
-                    ], model_name="gpt-4", temperature=0.7)
-
-                # JSON 파싱
-                import json
-                try:
-                    quiz_data = json.loads(quiz_response)
-                    st.session_state.quiz_data = quiz_data
-                    st.session_state.quiz_user_answers = [""] * len(quiz_data)
-                    st.success("퀴즈가 생성되었습니다!")
-                except Exception as e:
-                    st.error("퀴즈 생성에 실패했습니다. GPT 응답을 확인하세요.")
-                    st.write(quiz_response)
-
-    else:  # 직접 입력
-        user_text = st.text_area("퀴즈 생성에 사용할 텍스트 입력", "")
-        if st.button("사용자 텍스트 기반 퀴즈 생성"):
-            if user_text.strip():
-                with st.spinner("GPT가 퀴즈를 생성 중입니다..."):
-                    prompt = f"""
-                    아래 내용 기반으로 3개의 객관식 문제와 정답을 JSON 형태로 만들어줘.
-                    예시 포맷: 
-                    [
-                        {{"question": "...", "options": ["A) ...", "B) ..."], "answer": "A"}}
-                    ]
-                    내용: {user_text}
-                    """
-                    quiz_response = ask_gpt([
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": prompt.strip()}
-                    ], model_name="gpt-4", temperature=0.7)
-
-                # JSON 파싱
-                import json
-                try:
-                    quiz_data = json.loads(quiz_response)
-                    st.session_state.quiz_data = quiz_data
-                    st.session_state.quiz_user_answers = [""] * len(quiz_data)
-                    st.success("퀴즈가 생성되었습니다!")
-                except Exception as e:
-                    st.error("퀴즈 생성에 실패했습니다. GPT 응답을 확인하세요.")
-                    st.write(quiz_response)
-            else:
-                st.warning("텍스트를 입력하세요.")
+    # 커뮤니티
+    st.markdown("---")
+    community_tab()
 
     st.write("---")
-
-    # 생성된 퀴즈 보여주기
-    quiz_data = st.session_state.quiz_data
-    if quiz_data:
-        st.write("### 생성된 퀴즈")
-        for i, q in enumerate(quiz_data):
-            st.write(f"**Q{i+1}.** {q.get('question')}")
-            options = q.get("options", [])
-            if not options:
-                st.write("*보기 없음*")
-            else:
-                for opt in options:
-                    st.write(f"- {opt}")
-
-            # 사용자 답 입력
-            user_answer = st.text_input("정답 입력 (예: A, B, ...)", key=f"quiz_answer_{i}")
-            st.session_state.quiz_user_answers[i] = user_answer
-
-        if st.button("정답 채점"):
-            with st.spinner("GPT가 답안 채점 중..."):
-                # GPT에게 정답 여부를 물어볼 수도 있고,
-                # quiz_data에 있는 answer 필드와 직접 비교할 수도 있음
-                # 여기서는 간단히 GPT에게 판단을 맡기는 예시
-                # (quiz_data + user_answers를 GPT에게 넘김)
-                import json
-                combined_quiz_info = []
-                for i, q in enumerate(quiz_data):
-                    combined_quiz_info.append({
-                        "question": q.get("question", ""),
-                        "options": q.get("options", []),
-                        "correct_answer": q.get("answer", ""),
-                        "user_answer": st.session_state.quiz_user_answers[i]
-                    })
-
-                grading_prompt = f"""
-                아래는 사용자 퀴즈 제출 결과입니다.
-                JSON 배열 형식: 
-                [
-                    {{
-                        "question": "...",
-                        "options": ["A) ...", "B) ..."],
-                        "correct_answer": "A",
-                        "user_answer": "B"
-                    }},
-                    ...
-                ]
-                채점해 주세요. 각 문항마다 맞았는지/틀렸는지, 그리고 해설을 알려주세요.
-
-                {json.dumps(combined_quiz_info, ensure_ascii=False)}
-                """
-                grading_response = ask_gpt([
-                    {"role": "system", "content": "You are a helpful assistant, good at grading quizzes."},
-                    {"role": "user", "content": grading_prompt.strip()}
-                ], model_name="gpt-4", temperature=0.0)
-
-            st.write("### 채점 결과")
-            st.write(grading_response)
-
-###############################################################################
-# 메인 함수
-###############################################################################
-def main():
-    st.title("studyhelper (Extended + 퀴즈)")
-    st.write("""
-    GPT 채팅 / DOCX + PDF + PPT 분석 / 커뮤니티(이미지 등록) / 퀴즈 기능을 제공합니다. (GPT-4)
-    - 밑줄 / 색상 강조 / 이미지 정보도 GPT에 전달 (PPT, PDF)
-    - GPT가 요약, Clarifying Questions, 핵심단어, 가상의 References 등을 생성
-    - 문서 요약 혹은 사용자 입력으로 퀴즈를 생성하고, GPT에게 채점 가능
-    """)
-
-    tab = st.sidebar.radio("메뉴 선택", ("GPT 채팅", "파일 분석", "커뮤니티", "퀴즈"))
-
-    if tab == "GPT 채팅":
-        st.subheader("GPT 채팅")
-        chat_interface()
-
-    elif tab == "파일 분석":
-        docs_analysis_tab()
-
-    elif tab == "커뮤니티":
-        st.subheader("커뮤니티")
-        community_tab()
-
-    elif tab == "퀴즈":
-        quiz_tab()
-
-    st.write("---")
-    st.info("GPT 응답은 실제 정보를 보장하지 않을 수 있으니, 참고용으로만 활용하세요.")
+    st.info("GPT 응답은 실제 정보를 보장하지 않을 수 있습니다. 반드시 중요 내용은 검증하세요.")
 
 if __name__ == "__main__":
     main()
