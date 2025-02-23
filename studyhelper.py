@@ -44,7 +44,7 @@ english_stopwords = set(stopwords.words("english"))
 final_stopwords = english_stopwords.union(set(korean_stopwords))
 
 ###############################################################################
-# Streamlit 페이지 설정
+# Streamlit 페이지 설정 (페이지 제목: studyhelper)
 ###############################################################################
 st.set_page_config(page_title="studyhelper", layout="centered")
 
@@ -67,10 +67,8 @@ openai.api_key = OPENAI_API_KEY
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     """
     messages: [{"role": "system"/"user"/"assistant", "content": "..."}]
-    - openai>=1.0.0부터는 openai.chat.completions.create를 사용
     """
     try:
-        # 핵심 변경점: openai.ChatCompletion.create -> openai.chat.completions.create
         resp = openai.chat.completions.create(
             model=model_name,
             messages=messages,
@@ -101,7 +99,7 @@ def split_text_into_chunks(text, max_chars=3000):
 def advanced_document_processing(full_text, highlights="", images_info=""):
     """
     문서를 청크로 분할해 부분 요약 후,
-    최종 요약 + 중요문장 + 질문 + 핵심단어 + 관련근거(가상) 생성
+    최종 요약 + 중요문장 + 질문 + 핵심단어 + 관련근거(가상)를 생성
     """
     # 청크 분할
     chunks = split_text_into_chunks(full_text, max_chars=3000)
@@ -118,7 +116,7 @@ def advanced_document_processing(full_text, highlights="", images_info=""):
         summary = ask_gpt([
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt_chunk.strip()},
-        ], model_name="gpt-4", temperature=0.7)
+        ], model_name="gpt-4")
         partial_summaries.append(summary)
 
     combined_text = "\n\n".join(partial_summaries)
@@ -138,12 +136,12 @@ def advanced_document_processing(full_text, highlights="", images_info=""):
     2) 중요한 문장 3개
     3) 사용자에게 묻고 싶은 질문 2개
     4) 핵심 단어(Keywords) 5개
-    5) 관련 근거(References) 2~3개 (가상 가능)
+    5) 관련 근거(References) 2~3개 (가상)
     """
     final_result = ask_gpt([
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": final_prompt.strip()},
-    ], model_name="gpt-4", temperature=0.7)
+    ], model_name="gpt-4")
 
     return final_result
 
@@ -151,6 +149,7 @@ def advanced_document_processing(full_text, highlights="", images_info=""):
 # 파일 파싱 함수들 (DOCX / PDF / PPT)
 ###############################################################################
 def parse_docx(file_bytes):
+    import docx2txt
     try:
         text = docx2txt.process(BytesIO(file_bytes))
         return text if text else ""
@@ -159,6 +158,7 @@ def parse_docx(file_bytes):
         return ""
 
 def parse_pdf(file_bytes):
+    import pdfplumber
     text_list = []
     images_info = []
     try:
@@ -174,6 +174,10 @@ def parse_pdf(file_bytes):
     return "\n".join(text_list), images_info
 
 def parse_ppt(file_bytes):
+    from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.shapes.picture import Picture
+
     highlights = []
     images_info = []
     text_runs = []
@@ -222,8 +226,7 @@ def chat_interface():
             st.write(user_chat_input)
 
         with st.spinner("GPT가 응답 중..."):
-            # 대화를 전부 재전달 (단, system/usual/assistant를 구분)
-            # openai>=1.0.0 형태
+            # 대화 전부를 다시 전달 (assistant/user만 필터링)
             role_messages = []
             for msg in st.session_state.chat_history:
                 if msg["role"] in ("system", "user", "assistant"):
@@ -295,7 +298,7 @@ def community_tab():
                         st.experimental_rerun()
 
 ###############################################################################
-# 파일 분석 -> 자동 요약 탭
+# 파일 분석 -> 자동 요약
 ###############################################################################
 def analyze_file(file_bytes, filename):
     extension = filename.split(".")[-1].lower()
@@ -323,15 +326,13 @@ def analyze_file(file_bytes, filename):
         return
 
     images_join = "\n".join(images_info)
-    # GPT에게 요약 요청
     with st.spinner("문서 분석 중..."):
         result = advanced_document_processing(raw_text, highlight_text, images_join)
 
-    # 결과를 채팅 형식에 자동 추가
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # system 메시지(분석 완료) + assistant 메시지(분석 결과) 
+    # system 메시지(분석 완료) + assistant 메시지(분석 결과)
     st.session_state.chat_history.append({
         "role": "system",
         "message": f"업로드된 파일({filename}) 분석 완료."
@@ -346,13 +347,16 @@ def analyze_file(file_bytes, filename):
 # 메인
 ###############################################################################
 def main():
-    st.title("studyhelper (openai>=1.0.0 마이그레이션 버전)")
+    st.title("studyhelper")
+
+    # 간단 안내
     st.write("""
     - 파일 업로드 시 자동 분석 (DOCX/PDF/PPTX)
     - GPT 채팅 (대화형)
     - 커뮤니티 (이미지 등록 포함)
     """)
 
+    # 파일 업로드 (자동 분석)
     uploaded_file = st.file_uploader("파일을 업로드하세요 (docx, pdf, pptx)", type=["docx","pdf","pptx"])
     if uploaded_file:
         file_bytes = uploaded_file.getvalue()
