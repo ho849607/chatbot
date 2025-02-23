@@ -62,12 +62,16 @@ if not OPENAI_API_KEY:
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# GPT 함수
+# (openai>=1.0.0) ChatCompletion 함수
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
+    """
+    messages: [{"role": "system"/"user"/"assistant", "content": "..."}]
+    - openai>=1.0.0부터는 openai.chat.completions.create를 사용
+    """
     try:
-        import openai
-        resp = openai.ChatCompletion.create(
+        # 핵심 변경점: openai.ChatCompletion.create -> openai.chat.completions.create
+        resp = openai.chat.completions.create(
             model=model_name,
             messages=messages,
             temperature=temperature,
@@ -78,9 +82,75 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         return ""
 
 ###############################################################################
-# 파일 파싱 함수 (docx, pdf, pptx)
+# 긴 텍스트 -> 청크 분할 (문자 기준)
 ###############################################################################
-def parse_docx(file_bytes: bytes) -> str:
+def split_text_into_chunks(text, max_chars=3000):
+    chunks = []
+    start_idx = 0
+    while start_idx < len(text):
+        end_idx = min(start_idx + max_chars, len(text))
+        chunk = text[start_idx:end_idx]
+        chunks.append(chunk)
+        start_idx = end_idx
+    return chunks
+
+###############################################################################
+# 고급 분석 -> 부분 요약 -> 최종 요약(중요문장/질문/핵심단어/관련근거)
+# (docx/ppt/pdf 이미지/밑줄/색상 등도 추가)
+###############################################################################
+def advanced_document_processing(full_text, highlights="", images_info=""):
+    """
+    문서를 청크로 분할해 부분 요약 후,
+    최종 요약 + 중요문장 + 질문 + 핵심단어 + 관련근거(가상) 생성
+    """
+    # 청크 분할
+    chunks = split_text_into_chunks(full_text, max_chars=3000)
+
+    partial_summaries = []
+    for i, chunk in enumerate(chunks):
+        prompt_chunk = f"""
+        아래는 문서의 일부 내용입니다 (청크 {i+1}/{len(chunks)}).
+        ---
+        {chunk}
+        ---
+        이 텍스트를 간단히 요약해 주세요.
+        """
+        summary = ask_gpt([
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt_chunk.strip()},
+        ], model_name="gpt-4", temperature=0.7)
+        partial_summaries.append(summary)
+
+    combined_text = "\n\n".join(partial_summaries)
+    final_prompt = f"""
+    아래는 여러 부분 요약을 합친 내용입니다:
+    ---
+    {combined_text}
+    ---
+    추가 정보:
+    - 밑줄/색상 강조된 문구들:
+    {highlights}
+    - 포함된 이미지 정보:
+    {images_info}
+
+    다음을 수행해 주세요:
+    1) 문서 전체 요약
+    2) 중요한 문장 3개
+    3) 사용자에게 묻고 싶은 질문 2개
+    4) 핵심 단어(Keywords) 5개
+    5) 관련 근거(References) 2~3개 (가상 가능)
+    """
+    final_result = ask_gpt([
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": final_prompt.strip()},
+    ], model_name="gpt-4", temperature=0.7)
+
+    return final_result
+
+###############################################################################
+# 파일 파싱 함수들 (DOCX / PDF / PPT)
+###############################################################################
+def parse_docx(file_bytes):
     try:
         text = docx2txt.process(BytesIO(file_bytes))
         return text if text else ""
@@ -88,7 +158,7 @@ def parse_docx(file_bytes: bytes) -> str:
         st.error(f"DOCX 파일 처리 오류: {e}")
         return ""
 
-def parse_pdf(file_bytes: bytes):
+def parse_pdf(file_bytes):
     text_list = []
     images_info = []
     try:
@@ -96,7 +166,6 @@ def parse_pdf(file_bytes: bytes):
             for i, page in enumerate(pdf.pages):
                 page_text = page.extract_text() or ""
                 text_list.append(page_text)
-                # 이미지 메타데이터 예시
                 if page.images:
                     for img in page.images:
                         images_info.append(f"PDF Page {i+1} 이미지: {img}")
@@ -104,7 +173,7 @@ def parse_pdf(file_bytes: bytes):
         st.error(f"PDF 파일 처리 오류: {e}")
     return "\n".join(text_list), images_info
 
-def parse_ppt(file_bytes: bytes):
+def parse_ppt(file_bytes):
     highlights = []
     images_info = []
     text_runs = []
@@ -125,134 +194,52 @@ def parse_ppt(file_bytes: bytes):
                             text_runs.append(run_text)
                 # 이미지
                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE and isinstance(shape, Picture):
-                    width, height = shape.width, shape.height
-                    images_info.append(f"[슬라이드 {slide_idx+1}] 이미지 크기: {width}x{height}")
+                    w, h = shape.width, shape.height
+                    images_info.append(f"[슬라이드 {slide_idx+1}] 이미지 크기: {w}x{h}")
     except Exception as e:
         st.error(f"PPT 파일 처리 오류: {e}")
 
     return "\n".join(text_runs), "\n".join(highlights), "\n".join(images_info)
 
 ###############################################################################
-# 자동 분석 + 요약 + 핵심단어 + GPT가 사용자에게 질문 등
-###############################################################################
-def analyze_file(file_bytes: bytes, filename: str):
-    """
-    파일 업로드 시 자동 호출. 문서 내용을 파싱하고,
-    요약/핵심단어/근거/추가 질문(혹은 퀴즈) 등 GPT 메시지를 구성.
-    """
-    extension = filename.split(".")[-1].lower()
-
-    raw_text = ""
-    highlight_text = ""
-    images_info = []
-
-    # 파일 파싱
-    if extension == "docx":
-        raw_text = parse_docx(file_bytes)
-    elif extension == "pdf":
-        pdf_text, pdf_imgs = parse_pdf(file_bytes)
-        raw_text = pdf_text
-        images_info = pdf_imgs
-    elif extension == "pptx":
-        ppt_text, ppt_highlights, ppt_imgs = parse_ppt(file_bytes)
-        raw_text = ppt_text
-        highlight_text = ppt_highlights
-        images_info = ppt_imgs
-    else:
-        st.error("지원하지 않는 파일 형식입니다.")
-        return
-
-    if not raw_text.strip():
-        st.warning("문서에서 텍스트를 추출할 수 없습니다.")
-        return
-
-    # GPT에 넘길 추가정보 (밑줄, 색상, 이미지)
-    images_str = "\n".join(images_info)
-    # 간단히 요청 프롬프트
-    prompt = f"""
-    다음은 업로드된 문서의 텍스트입니다:
-    ---
-    {raw_text}
-    ---
-    밑줄/색상 정보:
-    {highlight_text}
-
-    이미지 정보:
-    {images_str}
-
-    위 문서를 분석해 주세요.
-    1) 문서 요약
-    2) 핵심단어 5개
-    3) 관련 근거(References) 2~3개 (가상의 예시 가능)
-    4) 사용자에게 묻고 싶은 질문(혹은 퀴즈 형식) 2~3개
-    모두 한국어로 답해 주세요.
-    """
-    # 메시지로 chat_history에 추가 + GPT 답변 받기
-    st.session_state.chat_history.append({
-        "role": "system",
-        "message": "업로드된 파일을 분석합니다."
-    })
-
-    with st.spinner("GPT가 문서를 분석 중입니다..."):
-        response = ask_gpt([
-            {"role": "system", "content": "당신은 유용한 AI 비서입니다."},
-            {"role": "user", "content": prompt.strip()}
-        ], model_name="gpt-4", temperature=0.7)
-
-    # 결과를 Chat 메시지로 추가
-    st.session_state.chat_history.append({
-        "role": "assistant",
-        "message": response
-    })
-
-###############################################################################
-# GPT 채팅창
+# GPT 채팅 인터페이스
 ###############################################################################
 def chat_interface():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # 채팅 UI: 기존 chat_history 출력
+    # 기존 대화 표시
     for chat in st.session_state.chat_history:
         role = chat["role"]
         content = chat["message"]
         with st.chat_message(role):
             st.write(content)
 
-    # 사용자가 새로 입력
     user_chat_input = st.chat_input("메시지를 입력하세요:")
     if user_chat_input:
-        # 채팅 히스토리에 사용자 메시지 추가
-        st.session_state.chat_history.append({
-            "role": "user",
-            "message": user_chat_input
-        })
+        st.session_state.chat_history.append({"role": "user", "message": user_chat_input})
         with st.chat_message("user"):
             st.write(user_chat_input)
 
-        # GPT 응답
         with st.spinner("GPT가 응답 중..."):
-            response = ask_gpt([
-                {"role": "system", "content": "당신은 유용한 AI 비서입니다."},
-                *[
-                    {"role": msg["role"], "content": msg["message"]}
-                    for msg in st.session_state.chat_history
-                    if msg["role"] in ("user", "assistant")
-                ],
-            ], model_name="gpt-4")
+            # 대화를 전부 재전달 (단, system/usual/assistant를 구분)
+            # openai>=1.0.0 형태
+            role_messages = []
+            for msg in st.session_state.chat_history:
+                if msg["role"] in ("system", "user", "assistant"):
+                    role_messages.append({"role": msg["role"], "content": msg["message"]})
 
-        st.session_state.chat_history.append({
-            "role": "assistant",
-            "message": response
-        })
+            response_text = ask_gpt(role_messages, model_name="gpt-4", temperature=0.7)
+
+        st.session_state.chat_history.append({"role": "assistant", "message": response_text})
         with st.chat_message("assistant"):
-            st.write(response)
+            st.write(response_text)
 
 ###############################################################################
-# 커뮤니티 탭
+# 커뮤니티 탭 (이미지 등록)
 ###############################################################################
 def community_tab():
-    st.header("커뮤니티 (문제 공유 및 해결책 모색)")
+    st.header("커뮤니티 (문제 공유)")
 
     if "community_ideas" not in st.session_state:
         st.session_state.community_ideas = []
@@ -261,8 +248,7 @@ def community_tab():
     idea_title = st.text_input("제목", "")
     idea_content = st.text_area("내용 (간략 소개)", "")
 
-    # 여러 이미지를 업로드 가능
-    image_files = st.file_uploader("이미지를 등록하세요 (선택사항)", type=["png","jpg","jpeg"], accept_multiple_files=True)
+    image_files = st.file_uploader("이미지를 등록하세요 (선택)", type=["png","jpg","jpeg"], accept_multiple_files=True)
 
     if st.button("등록"):
         if idea_title.strip() and idea_content.strip():
@@ -285,17 +271,15 @@ def community_tab():
     st.write("---")
     st.subheader("커뮤니티 목록")
     if len(st.session_state.community_ideas) == 0:
-        st.write("아직 등록된 문제/아이디어가 없습니다.")
+        st.write("아직 등록된 문제가 없습니다.")
     else:
         for idx, idea in enumerate(st.session_state.community_ideas):
             with st.expander(f"{idx+1}. {idea['title']}"):
                 st.write(f"**내용**: {idea['content']}")
-
                 if idea.get("images"):
                     st.write("### 첨부 이미지")
                     for img_bytes in idea["images"]:
                         st.image(img_bytes)
-
                 st.write("### 댓글")
                 if len(idea["comments"]) == 0:
                     st.write("아직 댓글이 없습니다.")
@@ -303,54 +287,90 @@ def community_tab():
                     for c_idx, comment in enumerate(idea["comments"]):
                         st.write(f"- {comment}")
 
-                comment_text = st.text_input(f"댓글 달기 (#{idx+1})", key=f"comment_input_{idx}")
-                if st.button(f"댓글 등록 (#{idx+1})"):
+                comment_text = st.text_input("댓글 달기", key=f"comment_{idx}")
+                if st.button(f"댓글 등록 #{idx+1}"):
                     if comment_text.strip():
                         idea["comments"].append(comment_text.strip())
                         st.success("댓글이 등록되었습니다!")
                         st.experimental_rerun()
-                    else:
-                        st.warning("댓글 내용을 입력하세요.")
-                st.write("---")
+
+###############################################################################
+# 파일 분석 -> 자동 요약 탭
+###############################################################################
+def analyze_file(file_bytes, filename):
+    extension = filename.split(".")[-1].lower()
+    raw_text = ""
+    highlight_text = ""
+    images_info = []
+
+    if extension == "docx":
+        raw_text = parse_docx(file_bytes)
+    elif extension == "pdf":
+        pdf_text, pdf_imgs = parse_pdf(file_bytes)
+        raw_text = pdf_text
+        images_info = pdf_imgs
+    elif extension == "pptx":
+        ppt_text, ppt_highlights, ppt_imgs = parse_ppt(file_bytes)
+        raw_text = ppt_text
+        highlight_text = ppt_highlights
+        images_info = ppt_imgs
+    else:
+        st.error("지원하지 않는 파일 형식입니다.")
+        return
+
+    if not raw_text.strip():
+        st.warning("텍스트를 추출할 수 없습니다.")
+        return
+
+    images_join = "\n".join(images_info)
+    # GPT에게 요약 요청
+    with st.spinner("문서 분석 중..."):
+        result = advanced_document_processing(raw_text, highlight_text, images_join)
+
+    # 결과를 채팅 형식에 자동 추가
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    # system 메시지(분석 완료) + assistant 메시지(분석 결과) 
+    st.session_state.chat_history.append({
+        "role": "system",
+        "message": f"업로드된 파일({filename}) 분석 완료."
+    })
+    st.session_state.chat_history.append({
+        "role": "assistant",
+        "message": result
+    })
+    st.success("파일 분석 완료! 아래 GPT 채팅에서 대화를 이어가 보세요.")
 
 ###############################################################################
 # 메인
 ###############################################################################
 def main():
-    st.title("studyhelper (자동 분석 + GPT 채팅 + 커뮤니티)")
-
-    # 간단 안내
+    st.title("studyhelper (openai>=1.0.0 마이그레이션 버전)")
     st.write("""
-    - **파일 업로드**: 업로드하는 즉시 문서 내용 분석 + GPT가 자동 요약/질문/퀴즈 제시
-    - **GPT 채팅**: 문서 관련 추가 질문이나 일반 대화 가능
-    - **커뮤니티**: 다른 사용자와 문제/아이디어 공유
+    - 파일 업로드 시 자동 분석 (DOCX/PDF/PPTX)
+    - GPT 채팅 (대화형)
+    - 커뮤니티 (이미지 등록 포함)
     """)
 
-    # 파일 업로드 (자동 분석)
     uploaded_file = st.file_uploader("파일을 업로드하세요 (docx, pdf, pptx)", type=["docx","pdf","pptx"])
     if uploaded_file:
         file_bytes = uploaded_file.getvalue()
         file_hash = hashlib.md5(file_bytes).hexdigest()
-        # 이전에 처리한 파일과 다르면 새로 분석
-        if ("current_file_hash" not in st.session_state or 
+        if ("current_file_hash" not in st.session_state or
             st.session_state.current_file_hash != file_hash):
             st.session_state.current_file_hash = file_hash
-            # chat_history 초기화 혹은 유지 여부 결정
-            # 여기서는 유지하지만, 완전히 새로 시작하려면 chat_history = []로 세팅
             analyze_file(file_bytes, uploaded_file.name)
-            st.success("문서 분석 완료! 아래 GPT 채팅 영역에서 대화를 이어가 보세요.")
 
-    # GPT 채팅 인터페이스
     st.markdown("---")
     st.header("GPT 채팅")
     chat_interface()
 
-    # 커뮤니티
     st.markdown("---")
     community_tab()
 
     st.write("---")
-    st.info("GPT 응답은 실제 정보를 보장하지 않을 수 있습니다. 반드시 중요 내용은 검증하세요.")
+    st.info("GPT 응답은 참고용입니다. 중요한 내용은 직접 검증하세요.")
 
 if __name__ == "__main__":
     main()
