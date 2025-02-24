@@ -115,6 +115,10 @@ def parse_ppt(file_bytes: bytes):
         return f"PPT 파일 처리 오류: {e}"
 
 def parse_image(file_bytes: bytes) -> str:
+    """
+    이미지: 간단히 Base64로 표시.
+    실제로는 OCR/Vision API 등으로 텍스트 추출 가능
+    """
     b64 = base64.b64encode(file_bytes).decode('utf-8')
     short_b64 = b64[:500] + "...(생략)"
     return f"[이미지 파일] Base64 데이터(일부): {short_b64}"
@@ -157,10 +161,13 @@ def analyze_file_for_gpt(fileinfo) -> str:
     return result
 
 ###############################################################################
-# GPT 채팅 탭 (+파일 업로드)
+# GPT 채팅 탭 (+파일 업로드) + "질문:" 감지 => 사용자 추가답변 필드
 ###############################################################################
 def gpt_chat_tab():
     st.header("GPT 채팅")
+
+    # GPT가 실수할 수 있고, 저작권 문제 가능성 안내
+    st.warning("**[안내] GPT는 부정확하거나 오류를 포함할 수 있으며, 저작권에 유의하세요.**")
 
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
@@ -172,7 +179,40 @@ def gpt_chat_tab():
         with st.chat_message(role):
             st.write(content)
 
-    # 2) 파일 업로드
+    # 2) 마지막 메시지에 '질문:'이 있으면 추가 답변 필드 표시
+    last_gpt_msg = ""
+    if st.session_state.chat_messages:
+        last_msg = st.session_state.chat_messages[-1]
+        if last_msg["role"] == "assistant":
+            last_gpt_msg = last_msg["message"]
+
+    if "질문:" in last_gpt_msg:
+        user_answer = st.text_input("GPT의 질문에 대한 답을 입력하세요:")
+        if st.button("답변 전송"):
+            # 사용자 답변을 "user" 메시지로 추가
+            st.session_state.chat_messages.append({
+                "role": "user",
+                "message": f"사용자의 답변: {user_answer}"
+            })
+            with st.chat_message("user"):
+                st.write(f"(사용자 답변) {user_answer}")
+
+            # GPT가 답변에 대한 코멘트
+            with st.spinner("GPT가 답변 확인 중..."):
+                role_messages = [
+                    {"role": m["role"], "content": m["message"]}
+                    for m in st.session_state.chat_messages
+                ]
+                gpt_response = ask_gpt(role_messages, model_name="gpt-4", temperature=0.7)
+
+            st.session_state.chat_messages.append({
+                "role": "assistant",
+                "message": gpt_response
+            })
+            with st.chat_message("assistant"):
+                st.write(gpt_response)
+
+    # 3) 파일 업로드 -> 분석
     uploaded_files = st.file_uploader(
         "파일을 업로드하면 분석 후 채팅에 추가됩니다 (이미지/PDF/PPTX/DOCX)",
         type=["png", "jpg", "jpeg", "pdf", "pptx", "docx"],
@@ -200,11 +240,7 @@ def gpt_chat_tab():
                 "message": analysis_result
             })
 
-        # ~~ st.experimental_rerun() 제거/주석 처리 ~~
-        # st.experimental_rerun()  # <-- 이 부분에서 오류 발생 가능
-        # 제거 후, 사용자는 새 대화 기록을 즉시 보지 못할 수 있지만, 다음 인터랙션 시 자동 갱신됨
-
-    # 3) 일반 채팅 입력
+    # 4) 일반 채팅 입력
     user_msg = st.chat_input("메시지를 입력하세요:")
     if user_msg:
         st.session_state.chat_messages.append({"role": "user", "message": user_msg})
@@ -227,6 +263,7 @@ def gpt_chat_tab():
 ###############################################################################
 def community_tab():
     st.header("커뮤니티 (파일/이미지 업로드 + 자동 등록 + 분석)")
+    st.warning("**[안내] GPT는 부정확하거나 오류를 포함할 수 있으며, 저작권에 유의하세요.**")
 
     if "community_posts" not in st.session_state:
         st.session_state.community_posts = []
@@ -341,7 +378,12 @@ def main():
         community_tab()
 
     st.write("---")
-    st.info("GPT 응답은 참고용입니다. 중요한 내용은 직접 검증하세요.")
+    st.info("""
+    **[주의]**
+    1) GPT 답변은 오류가 포함될 수 있습니다.
+    2) 민감/중요 정보는 반드시 별도로 검증하세요.
+    3) 업로드 파일의 저작권은 업로더가 책임지며, 위반 시 법적 책임이 발생할 수 있습니다.
+    """)
 
 if __name__ == "__main__":
     main()
