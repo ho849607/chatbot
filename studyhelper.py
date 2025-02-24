@@ -66,9 +66,6 @@ openai.api_key = OPENAI_API_KEY
 # GPT 함수 (openai>=1.0.0)
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
-    """
-    messages: [{"role": "system"/"user"/"assistant", "content": "..."}]
-    """
     try:
         resp = openai.chat.completions.create(
             model=model_name,
@@ -103,8 +100,6 @@ def parse_pdf(file_bytes: bytes):
         return f"PDF 파일 처리 오류: {e}"
 
 def parse_ppt(file_bytes: bytes):
-    # PPT 텍스트 + 밑줄/색상 + 이미지 크기 등을 추출하는 예시
-    # 여기서는 텍스트만 결합한 형태 반환
     text_runs = []
     try:
         prs = Presentation(BytesIO(file_bytes))
@@ -120,24 +115,11 @@ def parse_ppt(file_bytes: bytes):
         return f"PPT 파일 처리 오류: {e}"
 
 def parse_image(file_bytes: bytes) -> str:
-    """
-    이미지 파일을 분석하는 예시.
-    - 실제로는 OCR, Vision API 등으로 텍스트 추출 가능
-    - 여기서는 base64 인코딩 + GPT에 '이 이미지는 어떤 것 같아?' 라고 묻는 예시
-    """
     b64 = base64.b64encode(file_bytes).decode('utf-8')
-    # returning a pseudo text "Base64: <some substring>"
-    # GPT 프롬프트에서 요약 가능하도록
     short_b64 = b64[:500] + "...(생략)"
     return f"[이미지 파일] Base64 데이터(일부): {short_b64}"
 
 def analyze_file_for_gpt(fileinfo) -> str:
-    """
-    fileinfo = {"name":..., "ext":..., "data":...}
-    1) 파일 확장자별로 텍스트 추출
-    2) GPT 요약 프롬프트 생성
-    3) GPT로부터 요약/분석 결과 반환
-    """
     name = fileinfo["name"]
     ext = fileinfo["ext"]
     data = fileinfo["data"]
@@ -157,7 +139,6 @@ def analyze_file_for_gpt(fileinfo) -> str:
     if not extracted_text.strip():
         return f"{name}에서 텍스트를 추출할 수 없습니다."
 
-    # GPT 요약/분석 요청
     prompt = f"""
     업로드된 파일({name})에서 추출된 텍스트입니다:
     ---
@@ -176,25 +157,24 @@ def analyze_file_for_gpt(fileinfo) -> str:
     return result
 
 ###############################################################################
-# GPT 채팅 탭 + 파일 업로드 -> 자동 분석
+# GPT 채팅 탭 (+파일 업로드)
 ###############################################################################
 def gpt_chat_tab():
     st.header("GPT 채팅")
 
-    # 채팅 기록
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
 
-    # 1) 채팅 기록 표시
+    # 1) 기존 채팅 기록 표시
     for msg in st.session_state.chat_messages:
         role = msg["role"]
         content = msg["message"]
         with st.chat_message(role):
             st.write(content)
 
-    # 2) 파일 업로드 -> 자동 분석
+    # 2) 파일 업로드
     uploaded_files = st.file_uploader(
-        "파일을 업로드하면 곧바로 분석 후 채팅에 추가됩니다 (이미지/PDF/PPTX/DOCX)",
+        "파일을 업로드하면 분석 후 채팅에 추가됩니다 (이미지/PDF/PPTX/DOCX)",
         type=["png", "jpg", "jpeg", "pdf", "pptx", "docx"],
         accept_multiple_files=True
     )
@@ -208,10 +188,9 @@ def gpt_chat_tab():
                 "ext": file_ext,
                 "data": file_bytes
             }
-            # 분석
             with st.spinner(f"{file_name} 분석 중..."):
                 analysis_result = analyze_file_for_gpt(fileinfo)
-            # 채팅 기록에 메시지 추가
+
             st.session_state.chat_messages.append({
                 "role": "system",
                 "message": f"파일 {file_name} 분석 완료."
@@ -220,7 +199,10 @@ def gpt_chat_tab():
                 "role": "assistant",
                 "message": analysis_result
             })
-        st.experimental_rerun()  # 업로드 후 즉시 새 메시지 표시를 위해
+
+        # ~~ st.experimental_rerun() 제거/주석 처리 ~~
+        # st.experimental_rerun()  # <-- 이 부분에서 오류 발생 가능
+        # 제거 후, 사용자는 새 대화 기록을 즉시 보지 못할 수 있지만, 다음 인터랙션 시 자동 갱신됨
 
     # 3) 일반 채팅 입력
     user_msg = st.chat_input("메시지를 입력하세요:")
@@ -230,11 +212,7 @@ def gpt_chat_tab():
             st.write(user_msg)
 
         with st.spinner("GPT 응답 중..."):
-            # 전체 대화 -> GPT
-            role_messages = [
-                {"role": m["role"], "content": m["message"]}
-                for m in st.session_state.chat_messages
-            ]
+            role_messages = [{"role": m["role"], "content": m["message"]} for m in st.session_state.chat_messages]
             gpt_response = ask_gpt(role_messages, model_name="gpt-4", temperature=0.7)
 
         st.session_state.chat_messages.append({
@@ -245,12 +223,11 @@ def gpt_chat_tab():
             st.write(gpt_response)
 
 ###############################################################################
-# 커뮤니티 탭
+# 커뮤니티 탭 (이미지/문서 업로드 + 자동 등록/분석)
 ###############################################################################
 def community_tab():
     st.header("커뮤니티 (파일/이미지 업로드 + 자동 등록 + 분석)")
 
-    # 커뮤니티 게시글 목록
     if "community_posts" not in st.session_state:
         st.session_state.community_posts = []
 
@@ -258,16 +235,14 @@ def community_tab():
     post_title = st.text_input("제목", "")
     post_content = st.text_area("내용 (간략 소개)", "")
 
-    # 파일 업로드 (이미지/PDF/PPTX/DOCX)
     uploaded_files = st.file_uploader(
-        "파일을 등록하세요",
+        "파일을 등록하세요 (이미지/PDF/PPTX/DOCX)",
         type=["png", "jpg", "jpeg", "pdf", "pptx", "docx"],
         accept_multiple_files=True
     )
 
     if st.button("등록"):
         if post_title.strip() and post_content.strip():
-            # 업로드된 파일들
             files_info = []
             analysis_msgs = []
             if uploaded_files:
@@ -286,19 +261,17 @@ def community_tab():
             for finfo in files_info:
                 with st.spinner(f"{finfo['name']} 분석 중..."):
                     ares = analyze_file_for_gpt(finfo)
-                # 분석 결과를 게시글 내부에 저장(analysis_history)
                 analysis_msgs.append({
                     "file_name": finfo["name"],
                     "analysis_result": ares
                 })
 
-            # 새 게시글
             new_post = {
                 "title": post_title,
                 "content": post_content,
                 "comments": [],
-                "files": files_info,  # 원본 파일
-                "analysis_history": analysis_msgs,  # 분석 결과
+                "files": files_info,
+                "analysis_history": analysis_msgs,
             }
             st.session_state.community_posts.append(new_post)
             st.success("게시글이 등록/분석되었습니다!")
@@ -313,7 +286,6 @@ def community_tab():
         for idx, post in enumerate(st.session_state.community_posts):
             with st.expander(f"{idx+1}. {post['title']}"):
                 st.write(f"**내용**: {post['content']}")
-                # 첨부 파일 목록
                 if post.get("files"):
                     st.write("#### 첨부 파일")
                     for fobj in post["files"]:
@@ -324,7 +296,6 @@ def community_tab():
                         if ext in ["png", "jpg", "jpeg"]:
                             st.image(data)
                         else:
-                            # 다운로드 버튼
                             st.download_button(
                                 label=f"다운로드: {fn}",
                                 data=data,
@@ -333,7 +304,6 @@ def community_tab():
                 else:
                     st.write("첨부 파일 없음")
 
-                # 분석 결과 표시
                 if post.get("analysis_history"):
                     st.write("#### 자동 분석 결과")
                     for ah in post["analysis_history"]:
