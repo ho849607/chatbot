@@ -65,9 +65,6 @@ openai.api_key = OPENAI_API_KEY
 # (openai>=1.0.0) ChatCompletion 함수
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
-    """
-    messages: [{"role": "system"/"user"/"assistant", "content": "..."}]
-    """
     try:
         resp = openai.chat.completions.create(
             model=model_name,
@@ -97,11 +94,6 @@ def split_text_into_chunks(text, max_chars=3000):
 # (docx/ppt/pdf 이미지/밑줄/색상 등도 추가)
 ###############################################################################
 def advanced_document_processing(full_text, highlights="", images_info=""):
-    """
-    문서를 청크로 분할해 부분 요약 후,
-    최종 요약 + 중요문장 + 질문 + 핵심단어 + 관련근거(가상)를 생성
-    """
-    # 청크 분할
     chunks = split_text_into_chunks(full_text, max_chars=3000)
 
     partial_summaries = []
@@ -134,7 +126,7 @@ def advanced_document_processing(full_text, highlights="", images_info=""):
     다음을 수행해 주세요:
     1) 문서 전체 요약
     2) 중요한 문장 3개
-    3) 사용자에게 묻고 싶은 질문 2개
+    3) 사용자에게 묻고 싶은 질문(또는 퀴즈) 2~3개
     4) 핵심 단어(Keywords) 5개
     5) 관련 근거(References) 2~3개 (가상)
     """
@@ -149,7 +141,6 @@ def advanced_document_processing(full_text, highlights="", images_info=""):
 # 파일 파싱 함수들 (DOCX / PDF / PPT)
 ###############################################################################
 def parse_docx(file_bytes):
-    import docx2txt
     try:
         text = docx2txt.process(BytesIO(file_bytes))
         return text if text else ""
@@ -158,7 +149,6 @@ def parse_docx(file_bytes):
         return ""
 
 def parse_pdf(file_bytes):
-    import pdfplumber
     text_list = []
     images_info = []
     try:
@@ -174,10 +164,6 @@ def parse_pdf(file_bytes):
     return "\n".join(text_list), images_info
 
 def parse_ppt(file_bytes):
-    from pptx import Presentation
-    from pptx.enum.shapes import MSO_SHAPE_TYPE
-    from pptx.shapes.picture import Picture
-
     highlights = []
     images_info = []
     text_runs = []
@@ -185,7 +171,6 @@ def parse_ppt(file_bytes):
         prs = Presentation(BytesIO(file_bytes))
         for slide_idx, slide in enumerate(prs.slides):
             for shape in slide.shapes:
-                # 텍스트 상자
                 if shape.has_text_frame:
                     for paragraph in shape.text_frame.paragraphs:
                         for run in paragraph.runs:
@@ -196,7 +181,6 @@ def parse_ppt(file_bytes):
                                 color_str = run.font.color.rgb
                                 highlights.append(f"[슬라이드 {slide_idx+1}] 색상({color_str}): {run_text}")
                             text_runs.append(run_text)
-                # 이미지
                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE and isinstance(shape, Picture):
                     w, h = shape.width, shape.height
                     images_info.append(f"[슬라이드 {slide_idx+1}] 이미지 크기: {w}x{h}")
@@ -206,32 +190,69 @@ def parse_ppt(file_bytes):
     return "\n".join(text_runs), "\n".join(highlights), "\n".join(images_info)
 
 ###############################################################################
-# GPT 채팅 인터페이스
+# GPT 채팅 인터페이스 (+ GPT 질문 답변 기능)
 ###############################################################################
 def chat_interface():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # 기존 대화 표시
+    # 1) 기존 대화 표시
     for chat in st.session_state.chat_history:
         role = chat["role"]
         content = chat["message"]
         with st.chat_message(role):
             st.write(content)
 
+    # 2) GPT 질문 감지
+    #    - 단순 예시로, "질문:" 문자열이 있으면 찾아서 표시
+    #    - 실제로는 더 정교한 패턴 검색/파싱이 필요할 수도 있음
+    last_gpt_message = ""
+    if st.session_state.chat_history:
+        last_msg = st.session_state.chat_history[-1]
+        if last_msg["role"] == "assistant":
+            last_gpt_message = last_msg["message"]
+    user_answer_text = ""
+    if "질문:" in last_gpt_message:
+        # 사용자 답변받기
+        user_answer_text = st.text_input("GPT 질문에 대한 답변을 입력하세요:")
+        if st.button("GPT에게 답변 전달"):
+            # GPT에게 "사용자는 이렇게 답변했다" 라고 추가 메시지
+            st.session_state.chat_history.append({
+                "role": "user",
+                "message": f"사용자의 답변: {user_answer_text}"
+            })
+            with st.chat_message("user"):
+                st.write(f"(사용자 답변) {user_answer_text}")
+
+            with st.spinner("GPT가 답변을 확인 중..."):
+                # 이전 대화 전체를 기반으로 응답 생성
+                full_messages = [
+                    {"role": msg["role"], "content": msg["message"]}
+                    for msg in st.session_state.chat_history
+                ]
+                gpt_answer = ask_gpt(full_messages, model_name="gpt-4", temperature=0.7)
+
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "message": gpt_answer
+            })
+            with st.chat_message("assistant"):
+                st.write(gpt_answer)
+
+    # 3) 일반 채팅 입력
     user_chat_input = st.chat_input("메시지를 입력하세요:")
     if user_chat_input:
+        # 사용자 메시지 추가
         st.session_state.chat_history.append({"role": "user", "message": user_chat_input})
         with st.chat_message("user"):
             st.write(user_chat_input)
 
+        # GPT 응답
         with st.spinner("GPT가 응답 중..."):
-            # 대화 전부를 다시 전달 (assistant/user만 필터링)
-            role_messages = []
-            for msg in st.session_state.chat_history:
-                if msg["role"] in ("system", "user", "assistant"):
-                    role_messages.append({"role": msg["role"], "content": msg["message"]})
-
+            role_messages = [
+                {"role": msg["role"], "content": msg["message"]}
+                for msg in st.session_state.chat_history
+            ]
             response_text = ask_gpt(role_messages, model_name="gpt-4", temperature=0.7)
 
         st.session_state.chat_history.append({"role": "assistant", "message": response_text})
@@ -353,6 +374,7 @@ def main():
     st.write("""
     - 파일 업로드 시 자동 분석 (DOCX/PDF/PPTX)
     - GPT 채팅 (대화형)
+      - GPT가 질문을 던지면, 별도의 입력 필드를 통해 답변 가능
     - 커뮤니티 (이미지 등록 포함)
     """)
 
@@ -367,7 +389,7 @@ def main():
             analyze_file(file_bytes, uploaded_file.name)
 
     st.markdown("---")
-    st.header("GPT 채팅")
+    st.header("GPT 채팅 & 질문 답변")
     chat_interface()
 
     st.markdown("---")
