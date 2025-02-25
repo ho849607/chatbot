@@ -118,12 +118,20 @@ def analyze_file(fileinfo):
 ###############################################################################
 def gpt_chat_tab():
     st.header("📌 GPT 채팅")
-    st.write("💡 **파일을 업로드하면 자동 분석 후 GPT와 대화가 가능합니다.**")
+    # 사용법 안내
+    st.info(
+        """
+        **사용법 안내:**
+        1. 아래의 파일 업로드 영역에서 PDF, PPTX, DOCX, JPG, PNG 파일을 선택하여 업로드하면 파일 내용이 자동으로 분석됩니다.
+        2. 분석이 완료되면, 채팅 기록에 분석 결과가 표시됩니다.
+        3. 하단의 메시지 입력란에 질문을 작성하면 GPT가 응답을 제공합니다.
+        """
+    )
 
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
 
-    # 기존 대화 내용 출력 (메시지 키를 "content"로 수정)
+    # 기존 대화 내용 출력 (메시지 키를 "content"로 사용)
     for msg in st.session_state.chat_messages:
         role, content = msg["role"], msg["content"]
         with st.chat_message(role):
@@ -162,6 +170,16 @@ def gpt_chat_tab():
 ###############################################################################
 def community_tab():
     st.header("🌍 커뮤니티 (문서 공유 및 토론)")
+    # 사용법 안내
+    st.info(
+        """
+        **사용법 안내:**
+        1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
+        2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(PDF/PPTX/DOCX/이미지)을 첨부하여 게시글을 등록할 수 있습니다.
+        3. 게시글 상세보기 영역에서 댓글을 작성할 수 있으며, 댓글 작성 시 임의의 '유저_숫자'가 부여됩니다.
+        """
+    )
+    
     search_query = st.text_input("🔍 검색 (제목 또는 내용 입력)")
 
     if "community_posts" not in st.session_state:
@@ -199,7 +217,17 @@ def community_tab():
 ###############################################################################
 def main():
     st.title("📚 StudyHelper")
-
+    
+    # 전체 사용법 안내 (메인 화면 상단)
+    st.markdown(
+        """
+        **StudyHelper 사용법:**
+        - **GPT 채팅:** 파일 업로드를 통해 문서를 분석하고, GPT와 대화를 나눌 수 있습니다.
+        - **커뮤니티:** 게시글을 작성하고, 문서를 공유하며, 댓글로 의견을 나눌 수 있습니다.
+        좌측 사이드바에서 원하는 기능을 선택하여 사용해 보세요.
+        """
+    )
+    
     tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 채팅", "커뮤니티"))
     if tab == "GPT 채팅":
         gpt_chat_tab()
