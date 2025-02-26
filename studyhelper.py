@@ -3,10 +3,9 @@ import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
 from pathlib import Path
-import openai
+from openai import OpenAI  # OpenAI 클라이언트 사용
 import base64
 import random
-import subprocess
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -47,24 +46,8 @@ if not OPENAI_API_KEY:
     st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다.")
     st.stop()
 
-# 최신 OpenAI 라이브러리 방식 - 전역으로 API 키 설정
-openai.api_key = OPENAI_API_KEY
-
-###############################################################################
-# (선택) OpenAI 구버전 마이그레이션 함수
-###############################################################################
-def migrate_openai_api():
-    """
-    'no longer supported' 오류 발생 시 'openai migrate' 명령을 시도해 보는 함수.
-    보통 openai>=1.0.0 환경에서는 사용 안 함.
-    """
-    try:
-        subprocess.run(["openai", "migrate"], capture_output=True, text=True, check=True)
-        st.info("OpenAI API 마이그레이션 완료. 앱을 재시작해 주세요.")
-        st.stop()
-    except Exception as e:
-        st.error(f"API 마이그레이션 실패: {e}\n'openai migrate' 명령을 터미널에서 직접 실행해 보세요.")
-        st.stop()
+# OpenAI 클라이언트 초기화 (최신 방식)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 ###############################################################################
 # GPT 함수 (ChatCompletion)
@@ -74,16 +57,14 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     OpenAI ChatCompletion API를 통해 GPT 모델에게 메시지를 전달하고 응답을 받는 함수.
     """
     try:
-        resp = openai.ChatCompletion.create(
+        # OpenAI 클라이언트를 사용한 최신 방식
+        resp = client.chat.completions.create(
             model=model_name,
             messages=messages,
             temperature=temperature,
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
-        error_message = str(e)
-        if "no longer supported" in error_message:
-            migrate_openai_api()
         st.error(f"OpenAI API 호출 에러: {e}")
         return ""
 
