@@ -48,6 +48,7 @@ if not OPENAI_API_KEY:
     st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다.")
     st.stop()
 
+# API 키 설정 (client 인스턴스 생성 없이 사용)
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
@@ -117,7 +118,6 @@ def parse_image(file_bytes):
 def analyze_file(fileinfo):
     ext = fileinfo["ext"]
     data = fileinfo["data"]
-    
     if ext == "docx":
         return parse_docx(data)
     elif ext == "pdf":
@@ -134,31 +134,23 @@ def analyze_file(fileinfo):
 ###############################################################################
 def gpt_chat_tab():
     st.header("📌 GPT 채팅")
-    # 사용법 안내
-    st.info(
-        """
+    st.info("""
         **[GPT 채팅 사용법 안내]**
-        1. 아래의 파일 업로드 영역에서 PDF, PPTX, DOCX, JPG, PNG 파일을 선택하여 업로드하면 파일 내용이 자동으로 분석됩니다.
+        1. 아래의 파일 업로드 영역에서 PDF, PPTX, DOCX, JPG, PNG 파일을 선택하면 파일 내용이 자동 분석됩니다.
         2. 파일 분석 후, 채팅 기록에 분석 결과가 표시됩니다.
         3. 하단의 메시지 입력란에 질문을 작성하면 ChatGPT가 답변을 제공합니다.
-        """
-    )
-
+        """)
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
-
-    # 기존 대화 내용 출력 (메시지 키를 "content"로 사용)
     for msg in st.session_state.chat_messages:
         role, content = msg["role"], msg["content"]
         with st.chat_message(role):
             st.write(content)
-
     uploaded_files = st.file_uploader(
         "파일을 업로드하세요 (PDF/PPTX/DOCX/이미지 지원)",
         type=["pdf", "pptx", "docx", "jpg", "png"],
         accept_multiple_files=True
     )
-
     if uploaded_files:
         for uf in uploaded_files:
             file_bytes = uf.getvalue()
@@ -167,16 +159,13 @@ def gpt_chat_tab():
                 analysis_result = analyze_file(fileinfo)
             st.session_state.chat_messages.append({"role": "system", "content": f"📄 {fileinfo['name']} 분석 완료."})
             st.session_state.chat_messages.append({"role": "assistant", "content": analysis_result})
-
     user_msg = st.chat_input("메시지를 입력하세요:")
     if user_msg:
         st.session_state.chat_messages.append({"role": "user", "content": user_msg})
         with st.chat_message("user"):
             st.write(user_msg)
-
         with st.spinner("GPT 응답 중..."):
             gpt_response = ask_gpt(st.session_state.chat_messages)
-        
         st.session_state.chat_messages.append({"role": "assistant", "content": gpt_response})
         with st.chat_message("assistant"):
             st.write(gpt_response)
@@ -186,37 +175,25 @@ def gpt_chat_tab():
 ###############################################################################
 def community_tab():
     st.header("🌍 커뮤니티 (문서 공유 및 토론)")
-    # 사용법 안내
-    st.info(
-        """
+    st.info("""
         **[커뮤니티 사용법 안내]**
         1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
         2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(PDF/PPTX/DOCX/이미지)을 첨부하여 게시글을 등록할 수 있습니다.
         3. 게시글 상세보기 영역에서 댓글을 작성할 수 있으며, 댓글 작성 시 임의의 '유저_숫자'가 부여됩니다.
-        """
-    )
-    
+        """)
     search_query = st.text_input("🔍 검색 (제목 또는 내용 입력)")
-
     if "community_posts" not in st.session_state:
         st.session_state.community_posts = []
-
     st.subheader("📤 새로운 게시글 작성")
     title = st.text_input("제목")
     content = st.text_area("내용")
-
     uploaded_files = st.file_uploader("📎 파일 업로드", type=["pdf", "pptx", "docx", "jpg", "png"], accept_multiple_files=True)
-
     if st.button("게시글 등록"):
         if title.strip() and content.strip():
-            files_info = (
-                [{"name": uf.name, "ext": uf.name.split(".")[-1].lower(), "data": uf.getvalue()} for uf in uploaded_files]
-                if uploaded_files else []
-            )
+            files_info = ([{"name": uf.name, "ext": uf.name.split(".")[-1].lower(), "data": uf.getvalue()} for uf in uploaded_files] if uploaded_files else [])
             new_post = {"title": title, "content": content, "files": files_info, "comments": []}
             st.session_state.community_posts.append(new_post)
             st.success("✅ 게시글이 등록되었습니다!")
-
     st.subheader("📜 게시글 목록")
     for idx, post in enumerate(st.session_state.community_posts):
         if search_query.lower() in post["title"].lower() or search_query.lower() in post["content"].lower():
@@ -233,22 +210,17 @@ def community_tab():
 ###############################################################################
 def main():
     st.title("📚 StudyHelper")
-    
-    # 전체 사용법 안내 (메인 화면 상단)
-    st.markdown(
-        """
+    st.markdown("""
         ## StudyHelper 사용법 안내
         - **GPT 채팅:** 파일 업로드를 통해 문서를 분석하고, ChatGPT와 실시간 대화를 나눌 수 있습니다.
         - **커뮤니티:** 게시글을 작성하고, 문서를 공유하며, 댓글을 통해 의견을 나눌 수 있습니다.
         
         **주의사항**
-        - **저작권 안내:** 업로드하신 파일 및 콘텐츠는 저작권 보호 대상일 수 있습니다. 
+        - **저작권 안내:** 업로드하신 파일 및 콘텐츠는 저작권 보호 대상일 수 있습니다.
           본 플랫폼은 사용자가 제공한 자료에 대한 저작권 책임을 지지 않으므로, 자료 업로드 전 관련 법규 및 저작권 사항을 반드시 확인해 주세요.
-        - **중요 정보 확인:** ChatGPT의 답변은 참고용으로 제공되며, 오류나 부정확한 정보가 포함될 수 있습니다.
-          중요한 정보나 의사결정을 위해서는 반드시 추가 확인을 권장합니다.
-        """
-    )
-    
+        - **중요 정보 확인:** ChatGPT의 답변은 참고용으로 제공되며, 오류나 부정확한 정보가 포함될 수 있으므로
+          중요한 정보나 의사결정을 위해서는 반드시 추가 확인하시기 바랍니다.
+        """)
     tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 채팅", "커뮤니티"))
     if tab == "GPT 채팅":
         gpt_chat_tab()
