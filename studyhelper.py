@@ -260,8 +260,6 @@ if __name__ == "__main__":
 # 저작권 주의 문구 (Copyright Notice)
 ###############################################################################
 """
-이 소스 코드는 저작권법에 의해 보호됩니다. 무단 복제, 배포, 수정 또는 상업적 사용은 금지됩니다. 
-개인적이고 비상업적인 용도로만 사용 가능하며, 사용 시 출처를 명확히 표기해야 합니다. 
 파일 업로드 시 저작권에 유의해야 하며, 우리는 이 코드의 사용 또는 업로드된 파일로 인해 발생하는 어떠한 손해, 오용, 저작권 침해 문제에 대해 책임을 지지 않습니다.
 
 This source code is protected by copyright law. Unauthorized reproduction, distribution, modification, or commercial use is prohibited. 
