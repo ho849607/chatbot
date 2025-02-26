@@ -28,6 +28,7 @@ try:
     nltk.data.find("tokenizers/punkt")
 except LookupError:
     nltk.download("punkt", download_dir=nltk_data_dir)
+
 try:
     nltk.data.find("corpora/stopwords")
 except LookupError:
@@ -43,27 +44,40 @@ final_stopwords = english_stopwords.union(set(korean_stopwords))
 dotenv_path = Path(".env")
 load_dotenv(dotenv_path=dotenv_path)
 
-OPENAI_API_KEY = os.getenv("sk-proj-KFmPZC8JaPnNdfes7ODgT3BlbkFJLAzGm142s1EmWMvkHLvb")
+# .env 파일에 OPENAI_API_KEY=sk-xxxx... 형태로 실제 키를 저장해두어야 함
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 if not OPENAI_API_KEY:
-    st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다.")
+    st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다. (.env 파일 또는 환경 변수 확인 필요)")
     st.stop()
 
-OPENAI_API_KEY=os.getenv
+# 최신 OpenAI 라이브러리 방식: 전역으로 API 키 설정
+openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# OpenAI API 호출 함수 (마이그레이션 예외처리 포함 - 필요 시 제거 가능)
+# OpenAI API 마이그레이션 함수 (구버전 충돌 시 사용 - 필요 없으면 제거 가능)
 ###############################################################################
 def migrate_openai_api():
+    """
+    만약 이전 버전의 openai 라이브러리에 대한 'no longer supported' 오류가 발생하면
+    'openai migrate' 명령을 시도하는 함수.
+    openai>=1.0.0 이상에서는 일반적으로 사용되지 않습니다.
+    """
     try:
-        result = subprocess.run(["openai", "migrate"], capture_output=True, text=True, check=True)
-        st.info("OpenAI API 마이그레이션이 완료되었습니다. 앱을 재시작해주세요.")
+        subprocess.run(["openai", "migrate"], capture_output=True, text=True, check=True)
+        st.info("OpenAI API 마이그레이션이 완료되었습니다. 앱을 재시작해 주세요.")
         st.stop()
     except Exception as e:
-        st.error(f"API 마이그레이션 실패: {e} - 'openai migrate' 명령을 터미널에서 직접 실행해 주세요.")
+        st.error(f"API 마이그레이션 실패: {e}\n터미널에서 'openai migrate' 명령을 직접 실행해 보세요.")
         st.stop()
 
+###############################################################################
+# GPT 함수 (ChatCompletion)
+###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
-    """GPT와 대화하는 함수."""
+    """
+    OpenAI ChatCompletion API를 통해 GPT-4 모델에게 메시지를 전달하고 응답을 받는 함수.
+    """
     try:
         resp = openai.ChatCompletion.create(
             model=model_name,
@@ -73,7 +87,6 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         return resp.choices[0].message.content.strip()
     except Exception as e:
         error_message = str(e)
-        # 'no longer supported' 에러 발생 시 마이그레이션 시도
         if "no longer supported" in error_message:
             migrate_openai_api()
         st.error(f"OpenAI API 호출 에러: {e}")
@@ -93,7 +106,8 @@ def parse_pdf(file_bytes):
     try:
         with pdfplumber.open(BytesIO(file_bytes)) as pdf:
             for page in pdf.pages:
-                text_list.append(page.extract_text() or "")
+                text = page.extract_text() or ""
+                text_list.append(text)
         return "\n".join(text_list)
     except Exception:
         return "PDF 파일 분석 오류"
@@ -111,13 +125,17 @@ def parse_ppt(file_bytes):
         return "PPTX 파일 분석 오류"
 
 def parse_image(file_bytes):
-    """이미지 파일 분석 (OCR 등) - 현재는 단순 안내만"""
+    """이미지 파일에 대한 OCR 분석 로직 (현재는 단순 안내만 반환)"""
     return "[이미지 파일] OCR 분석 기능 추가 가능"
 
 def analyze_file(fileinfo):
-    """파일 확장자에 맞춰 적절한 파싱 함수 호출"""
+    """
+    업로드된 파일의 확장자를 확인한 뒤,
+    해당 파일에 맞는 파싱 함수를 호출해 텍스트를 추출.
+    """
     ext = fileinfo["ext"]
     data = fileinfo["data"]
+
     if ext == "docx":
         return parse_docx(data)
     elif ext == "pdf":
@@ -130,7 +148,7 @@ def analyze_file(fileinfo):
         return "지원하지 않는 파일 형식입니다."
 
 ###############################################################################
-# GPT 채팅 탭
+# GPT 채팅 탭 (파일 업로드 + 채팅 기능)
 ###############################################################################
 def gpt_chat_tab():
     st.header("📌 GPT 채팅")
@@ -141,10 +159,11 @@ def gpt_chat_tab():
     3. 메시지 입력란에 질문을 작성하면 GPT가 답변을 제공합니다.
     """)
 
+    # 채팅 메시지 세션 초기화
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = []
 
-    # 기존 대화 내용 표시
+    # 기존 메시지 출력
     for msg in st.session_state.chat_messages:
         role, content = msg["role"], msg["content"]
         with st.chat_message(role):
@@ -166,19 +185,19 @@ def gpt_chat_tab():
             }
             with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
                 analysis_result = analyze_file(fileinfo)
+
             # 분석 결과를 채팅 기록에 추가
             st.session_state.chat_messages.append({"role": "system", "content": f"📄 {fileinfo['name']} 분석 완료."})
             st.session_state.chat_messages.append({"role": "assistant", "content": analysis_result})
 
-    # 사용자 질문 입력
+    # 사용자 입력
     user_msg = st.chat_input("메시지를 입력하세요:")
     if user_msg:
-        # 사용자 메시지 추가
         st.session_state.chat_messages.append({"role": "user", "content": user_msg})
         with st.chat_message("user"):
             st.write(user_msg)
 
-        # GPT 응답
+        # GPT 응답 호출
         with st.spinner("GPT 응답 중..."):
             gpt_response = ask_gpt(st.session_state.chat_messages)
 
@@ -193,33 +212,38 @@ def community_tab():
     st.header("🌍 커뮤니티 (문서 공유 및 토론)")
     st.info("""
     **[커뮤니티 사용법]**
-    1. 상단의 검색창을 통해 게시글(제목, 내용)을 검색할 수 있습니다.
-    2. '새로운 게시글 작성'에서 제목, 내용, 파일을 첨부해 게시글을 등록할 수 있습니다.
-    3. 게시글 상세 보기에서 댓글을 남길 수 있으며, 임의의 '유저_숫자'로 표시됩니다.
+    1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
+    2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(PDF/PPTX/DOCX/JPG/PNG)을 첨부하여 게시글을 등록할 수 있습니다.
+    3. 게시글 상세보기 영역에서 댓글을 작성할 수 있으며, 댓글 작성 시 임의의 '유저_숫자'가 부여됩니다.
     """)
 
-    # 검색어 입력
-    search_query = st.text_input("🔍 검색 (제목 또는 내용)")
+    # 검색 기능
+    search_query = st.text_input("🔍 검색 (제목 또는 내용 입력)")
 
-    # 커뮤니티 게시글 리스트
+    # 커뮤니티 게시글 초기화
     if "community_posts" not in st.session_state:
         st.session_state.community_posts = []
 
     st.subheader("📤 새로운 게시글 작성")
     title = st.text_input("제목")
     content = st.text_area("내용")
-    uploaded_files = st.file_uploader("파일 첨부 (PDF/PPTX/DOCX/JPG/PNG)", 
-                                      type=["pdf", "pptx", "docx", "jpg", "png"], 
-                                      accept_multiple_files=True)
+    uploaded_files = st.file_uploader(
+        "📎 파일 업로드 (PDF/PPTX/DOCX/JPG/PNG)",
+        type=["pdf", "pptx", "docx", "jpg", "png"],
+        accept_multiple_files=True
+    )
 
     # 게시글 등록
     if st.button("게시글 등록"):
         if title.strip() and content.strip():
-            files_info = ([{
-                "name": uf.name,
-                "ext": uf.name.split(".")[-1].lower(),
-                "data": uf.getvalue()
-            } for uf in uploaded_files] if uploaded_files else [])
+            files_info = [
+                {
+                    "name": uf.name,
+                    "ext": uf.name.split(".")[-1].lower(),
+                    "data": uf.getvalue()
+                }
+                for uf in uploaded_files
+            ] if uploaded_files else []
             new_post = {
                 "title": title,
                 "content": content,
@@ -229,6 +253,7 @@ def community_tab():
             st.session_state.community_posts.append(new_post)
             st.success("✅ 게시글이 등록되었습니다!")
 
+    # 게시글 목록 표시
     st.subheader("📜 게시글 목록")
     for idx, post in enumerate(st.session_state.community_posts):
         # 검색 조건
@@ -237,11 +262,16 @@ def community_tab():
                 st.write(post["content"])
 
                 # 댓글 작성
-                comment_box_key = f"comment_box_{idx}"
+                comment_key = f"comment_box_{idx}"
                 comment_btn_key = f"comment_btn_{idx}"
-                comment = st.text_input(f"💬 댓글 작성 (작성자: 유저_{random.randint(100,999)})", key=comment_box_key)
+                comment = st.text_input(
+                    f"💬 댓글 작성 (작성자: 유저_{random.randint(100,999)})",
+                    key=comment_key
+                )
                 if st.button("댓글 등록", key=comment_btn_key):
-                    post["comments"].append(f"📝 유저_{random.randint(100,999)}: {comment}")
+                    post["comments"].append(
+                        f"📝 유저_{random.randint(100,999)}: {comment}"
+                    )
 
                 # 댓글 목록
                 for c in post["comments"]:
@@ -255,39 +285,23 @@ def main():
 
     st.markdown("""
     ## StudyHelper 사용법 안내
-    - **GPT 채팅:** 파일을 업로드하여 AI가 문서 내용을 분석해주며, 바로 AI와 대화를 나눌 수 있습니다.
-    - **커뮤니티:** 자유롭게 게시글을 작성하고, 서로 의견을 주고받으며 토론할 수 있습니다.
+    - **GPT 채팅:** 파일 업로드를 통해 문서를 분석하고, ChatGPT와 실시간 대화를 나눌 수 있습니다.
+    - **커뮤니티:** 게시글을 작성하고, 문서를 공유하며, 댓글을 통해 의견을 나눌 수 있습니다.
     
     **주의사항**
-    - **저작권 안내:** 업로드하신 파일/콘텐츠는 저작권 보호 대상일 수 있습니다.
+    - **저작권 안내:** 업로드하신 파일 및 콘텐츠는 저작권 보호 대상일 수 있습니다.
       본 플랫폼은 자료에 대한 저작권 책임을 지지 않으므로, 업로드 전 관련 법규를 준수해 주세요.
-    - **중요 정보 확인:** ChatGPT의 답변은 참고용이며, 오류나 부정확한 내용이 있을 수 있습니다.
+    - **중요 정보 확인:** ChatGPT의 답변은 참고용이며, 오류나 부정확한 내용이 포함될 수 있습니다.
       중요한 결정을 내릴 때는 반드시 추가 확인이 필요합니다.
     """)
 
-    # 사이드바 탭
+    # 사이드바 메뉴
     tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 채팅", "커뮤니티"))
     if tab == "GPT 채팅":
         gpt_chat_tab()
     else:
         community_tab()
 
-# 프로그램 시작
+# 프로그램 실행
 if __name__ == "__main__":
     main()
-
-openai.api_key = OPENAI_API_KEY
-
-# GPT 사용 함수
-def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
-    try:
-        return openai.ChatCompletion.create(
-            model=model_name,
-            messages=messages,
-            temperature=temperature,
-        ).choices[0].message.content.strip()
-    except Exception as e:
-        st.error(f"OpenAI API 호출 에러: {e}")
-        return ""
-
-# ... (이하 생략, 파일 파싱, 탭 구성, main() 함수 등) ...
