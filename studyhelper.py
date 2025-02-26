@@ -7,6 +7,7 @@ from pathlib import Path
 import hashlib
 import base64
 import random
+import subprocess
 
 import nltk
 from nltk.tokenize import word_tokenize
@@ -50,6 +51,18 @@ if not OPENAI_API_KEY:
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
+# OpenAI API 마이그레이션 기능
+###############################################################################
+def migrate_openai_api():
+    try:
+        result = subprocess.run(["openai", "migrate"], capture_output=True, text=True, check=True)
+        st.info("OpenAI API 마이그레이션이 완료되었습니다. 앱을 재시작해주세요.")
+        st.stop()
+    except Exception as e:
+        st.error("API 마이그레이션에 실패했습니다. 터미널에서 'openai migrate'를 실행해주세요. 오류: " + str(e))
+        st.stop()
+
+###############################################################################
 # GPT 함수
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
@@ -61,6 +74,9 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
+        error_message = str(e)
+        if "no longer supported" in error_message:
+            migrate_openai_api()
         st.error(f"OpenAI API 호출 에러: {e}")
         return ""
 
@@ -121,10 +137,10 @@ def gpt_chat_tab():
     # 사용법 안내
     st.info(
         """
-        **사용법 안내:**
+        **[GPT 채팅 사용법 안내]**
         1. 아래의 파일 업로드 영역에서 PDF, PPTX, DOCX, JPG, PNG 파일을 선택하여 업로드하면 파일 내용이 자동으로 분석됩니다.
-        2. 분석이 완료되면, 채팅 기록에 분석 결과가 표시됩니다.
-        3. 하단의 메시지 입력란에 질문을 작성하면 GPT가 응답을 제공합니다.
+        2. 파일 분석 후, 채팅 기록에 분석 결과가 표시됩니다.
+        3. 하단의 메시지 입력란에 질문을 작성하면 ChatGPT가 답변을 제공합니다.
         """
     )
 
@@ -173,7 +189,7 @@ def community_tab():
     # 사용법 안내
     st.info(
         """
-        **사용법 안내:**
+        **[커뮤니티 사용법 안내]**
         1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
         2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(PDF/PPTX/DOCX/이미지)을 첨부하여 게시글을 등록할 수 있습니다.
         3. 게시글 상세보기 영역에서 댓글을 작성할 수 있으며, 댓글 작성 시 임의의 '유저_숫자'가 부여됩니다.
@@ -221,18 +237,15 @@ def main():
     # 전체 사용법 안내 (메인 화면 상단)
     st.markdown(
         """
-        **StudyHelper 사용법:**
-        - **GPT 채팅:** 파일 업로드를 통해 문서를 분석하고, GPT와 대화를 나눌 수 있습니다.
-        - **커뮤니티:** 게시글을 작성하고, 문서를 공유하며, 댓글로 의견을 나눌 수 있습니다.
-        좌측 사이드바에서 원하는 기능을 선택하여 사용해 보세요.
-        """
-    )
-    
-    # 저작권 및 중요 정보 주의 메시지
-    st.info(
-        """
-        **저작권 주의:** 업로드 하거나 공유하는 파일 및 콘텐츠는 저작권 보호를 받을 수 있으니, 사용에 주의해 주세요.
-        **중요 정보 확인:** ChatGPT의 답변은 참고용으로 제공되며, 때때로 오류가 발생할 수 있으므로 중요한 정보는 반드시 추가 확인하시기 바랍니다.
+        ## StudyHelper 사용법 안내
+        - **GPT 채팅:** 파일 업로드를 통해 문서를 분석하고, ChatGPT와 실시간 대화를 나눌 수 있습니다.
+        - **커뮤니티:** 게시글을 작성하고, 문서를 공유하며, 댓글을 통해 의견을 나눌 수 있습니다.
+        
+        **주의사항**
+        - **저작권 안내:** 업로드하신 파일 및 콘텐츠는 저작권 보호 대상일 수 있습니다. 
+          본 플랫폼은 사용자가 제공한 자료에 대한 저작권 책임을 지지 않으므로, 자료 업로드 전 관련 법규 및 저작권 사항을 반드시 확인해 주세요.
+        - **중요 정보 확인:** ChatGPT의 답변은 참고용으로 제공되며, 오류나 부정확한 정보가 포함될 수 있습니다.
+          중요한 정보나 의사결정을 위해서는 반드시 추가 확인을 권장합니다.
         """
     )
     
