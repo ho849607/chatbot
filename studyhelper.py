@@ -17,7 +17,7 @@ import pdfplumber
 from pptx import Presentation
 
 ###############################################################################
-# NLTK 설정
+# NLTK 설정 (필요 시)
 ###############################################################################
 nltk_data_dir = "/tmp/nltk_data"
 os.makedirs(nltk_data_dir, exist_ok=True)
@@ -44,31 +44,28 @@ final_stopwords = english_stopwords.union(set(korean_stopwords))
 dotenv_path = Path(".env")
 load_dotenv(dotenv_path=dotenv_path)
 
-# .env 파일에 OPENAI_API_KEY=sk-xxxx... 형태로 실제 키를 저장해두어야 함
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # .env 파일에서 KEY를 가져옴
 if not OPENAI_API_KEY:
-    st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다. (.env 파일 또는 환경 변수 확인 필요)")
+    st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다.")
     st.stop()
 
-# 최신 OpenAI 라이브러리 방식: 전역으로 API 키 설정
+# 최신 OpenAI 라이브러리 방식 - 전역으로 API 키 설정
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
-# OpenAI API 마이그레이션 함수 (구버전 충돌 시 사용 - 필요 없으면 제거 가능)
+# (선택) OpenAI 구버전 마이그레이션 함수
 ###############################################################################
 def migrate_openai_api():
     """
-    만약 이전 버전의 openai 라이브러리에 대한 'no longer supported' 오류가 발생하면
-    'openai migrate' 명령을 시도하는 함수.
-    openai>=1.0.0 이상에서는 일반적으로 사용되지 않습니다.
+    'no longer supported' 오류 발생 시 'openai migrate' 명령을 시도해 보는 함수.
+    보통 openai>=1.0.0 환경에서는 사용 안 함.
     """
     try:
         subprocess.run(["openai", "migrate"], capture_output=True, text=True, check=True)
-        st.info("OpenAI API 마이그레이션이 완료되었습니다. 앱을 재시작해 주세요.")
+        st.info("OpenAI API 마이그레이션 완료. 앱을 재시작해 주세요.")
         st.stop()
     except Exception as e:
-        st.error(f"API 마이그레이션 실패: {e}\n터미널에서 'openai migrate' 명령을 직접 실행해 보세요.")
+        st.error(f"API 마이그레이션 실패: {e}\n'openai migrate' 명령을 터미널에서 직접 실행해 보세요.")
         st.stop()
 
 ###############################################################################
@@ -76,7 +73,7 @@ def migrate_openai_api():
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     """
-    OpenAI ChatCompletion API를 통해 GPT-4 모델에게 메시지를 전달하고 응답을 받는 함수.
+    OpenAI ChatCompletion API를 통해 GPT 모델에게 메시지를 전달하고 응답을 받는 함수.
     """
     try:
         resp = openai.ChatCompletion.create(
@@ -148,7 +145,7 @@ def analyze_file(fileinfo):
         return "지원하지 않는 파일 형식입니다."
 
 ###############################################################################
-# GPT 채팅 탭 (파일 업로드 + 채팅 기능)
+# GPT 채팅 탭
 ###############################################################################
 def gpt_chat_tab():
     st.header("📌 GPT 채팅")
@@ -253,7 +250,6 @@ def community_tab():
             st.session_state.community_posts.append(new_post)
             st.success("✅ 게시글이 등록되었습니다!")
 
-    # 게시글 목록 표시
     st.subheader("📜 게시글 목록")
     for idx, post in enumerate(st.session_state.community_posts):
         # 검색 조건
@@ -285,13 +281,13 @@ def main():
 
     st.markdown("""
     ## StudyHelper 사용법 안내
-    - **GPT 채팅:** 파일 업로드를 통해 문서를 분석하고, ChatGPT와 실시간 대화를 나눌 수 있습니다.
-    - **커뮤니티:** 게시글을 작성하고, 문서를 공유하며, 댓글을 통해 의견을 나눌 수 있습니다.
+    - **GPT 채팅:** 파일을 업로드하여 AI가 문서 내용을 분석해주며, 바로 AI와 대화를 나눌 수 있습니다.
+    - **커뮤니티:** 자유롭게 게시글을 작성하고, 서로 의견을 주고받으며 토론할 수 있습니다.
     
     **주의사항**
     - **저작권 안내:** 업로드하신 파일 및 콘텐츠는 저작권 보호 대상일 수 있습니다.
       본 플랫폼은 자료에 대한 저작권 책임을 지지 않으므로, 업로드 전 관련 법규를 준수해 주세요.
-    - **중요 정보 확인:** ChatGPT의 답변은 참고용이며, 오류나 부정확한 내용이 포함될 수 있습니다.
+    - **중요 정보 확인:** ChatGPT의 답변은 참고용이며, 오류나 부정확한 내용이 있을 수 있습니다.
       중요한 결정을 내릴 때는 반드시 추가 확인이 필요합니다.
     """)
 
@@ -302,6 +298,5 @@ def main():
     else:
         community_tab()
 
-# 프로그램 실행
 if __name__ == "__main__":
     main()
