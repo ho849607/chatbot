@@ -2,13 +2,11 @@ import os
 import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
-import hashlib
 from pathlib import Path
 import openai
 import base64
 import random
 import subprocess
-
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
