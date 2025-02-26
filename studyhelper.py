@@ -2,9 +2,9 @@ import os
 import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
-import openai
-from pathlib import Path
 import hashlib
+from pathlib import Path
+import openai
 import base64
 import random
 import subprocess
