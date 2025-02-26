@@ -2,15 +2,12 @@ import os
 import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
-from openai import OpenAI  # OpenAI 클래스 임포트 추가
+from openai import OpenAI
 from pathlib import Path
 import hashlib
 import base64
 import random
 import subprocess
-
-# 이미지 붙여넣기 지원 라이브러리
-import streamlit_image_paste
 
 import nltk
 from nltk.tokenize import word_tokenize
@@ -72,7 +69,6 @@ def migrate_openai_api():
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     try:
-        # 최신 OpenAI SDK 방식으로 수정
         resp = client.chat.completions.create(
             model=model_name,
             messages=messages,
@@ -144,9 +140,8 @@ def gpt_chat_tab():
     st.info("""
     **[GPT 채팅 사용법]**
     1. 아래의 파일 업로드 영역에서 PDF/PPTX/DOCX/이미지(JPG/PNG) 파일을 선택하면 자동으로 분석됩니다.
-    2. Ctrl+V로 클립보드 이미지를 붙여넣을 수도 있습니다 (일부 브라우저 제한 가능).
-    3. 분석 결과는 채팅 형식으로 표시됩니다.
-    4. 메시지 입력란에 질문을 작성하면 GPT가 답변을 제공합니다.
+    2. 분석 결과는 채팅 형식으로 표시됩니다.
+    3. 메시지 입력란에 질문을 작성하면 GPT가 답변을 제공합니다.
     """)
 
     # 기존 채팅 기록
@@ -177,25 +172,7 @@ def gpt_chat_tab():
             st.session_state.chat_messages.append({"role": "system", "content": f"📄 {fileinfo['name']} 분석 완료."})
             st.session_state.chat_messages.append({"role": "assistant", "content": analysis_result})
 
-    # ------------------------- 2) 클립보드 이미지 붙여넣기 ----------------------
-    st.subheader("✂️ 클립보드 이미지 붙여넣기(Ctrl+V)")
-    pasted_img = streamlit_image_paste.paste_image(key="clipboard_image")
-    if pasted_img is not None:
-        with st.spinner("클립보드 이미지 분석 중..."):
-            # PIL 이미지를 바이트로 변환
-            buffer = BytesIO()
-            pasted_img.save(buffer, format="PNG")
-            file_bytes = buffer.getvalue()
-
-            # parse_image 시뮬레이션
-            analysis_result = parse_image(file_bytes)
-
-        st.session_state.chat_messages.append({"role": "system", "content": f"📄 (클립보드) 이미지 분석 완료."})
-        st.session_state.chat_messages.append({"role": "assistant", "content": analysis_result})
-
-        st.success("클립보드 이미지를 분석했습니다!")
-
-    # ------------------------- 3) 사용자 질문 입력 ------------------------------
+    # ------------------------- 2) 사용자 질문 입력 ------------------------------
     user_msg = st.chat_input("메시지를 입력하세요:")
     if user_msg:
         st.session_state.chat_messages.append({"role": "user", "content": user_msg})
@@ -258,16 +235,16 @@ def community_tab():
 # 메인 실행
 ###############################################################################
 def main():
-    st.title("📚 StudyHelper -")
+    st.title("📚 StudyHelper")
 
     st.markdown("""
-    **이 앱은 Ctrl+V로 클립보드 이미지를 업로드할 수 있도록 수정된 버전입니다.**
+    **이 앱은 파일 업로드와 GPT 채팅 기능을 제공합니다.**
     
     - **GPT 채팅 탭**에서:
       1. 파일 업로드 (PDF/PPTX/DOCX/JPG/PNG)
       2. 분석 결과를 채팅 형식으로 표시
-      3. 메시지 입력(채팅) 통해 GPT 대화
-    - 4.커뮤니티 탭**: 기존 게시글 등록/검색/댓글 기능
+      3. 메시지 입력(채팅)을 통해 GPT 대화
+    - **커뮤니티 탭**: 기존 게시글 등록/검색/댓글 기능
     """)
     
     tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 채팅", "커뮤니티"))
