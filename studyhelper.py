@@ -43,12 +43,12 @@ final_stopwords = english_stopwords.union(set(korean_stopwords))
 dotenv_path = Path(".env")
 load_dotenv(dotenv_path=dotenv_path)
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("sk-proj-KFmPZC8JaPnNdfes7ODgT3BlbkFJLAzGm142s1EmWMvkHLvb")
 if not OPENAI_API_KEY:
     st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다.")
     st.stop()
 
-OPENAI_API_KEY="OPENAI_API_KEY=sk-xxxxxx"
+OPENAI_API_KEY=os.getenv
 
 ###############################################################################
 # OpenAI API 호출 함수 (마이그레이션 예외처리 포함 - 필요 시 제거 가능)
