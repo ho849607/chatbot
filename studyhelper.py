@@ -8,10 +8,6 @@ import hashlib
 import base64
 import random
 import subprocess
-
-# 이미지 붙여넣기 지원 라이브러리
-import streamlit_image_paste
-
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
