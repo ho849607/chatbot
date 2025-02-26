@@ -38,7 +38,7 @@ english_stopwords = set(stopwords.words("english"))
 final_stopwords = english_stopwords.union(set(korean_stopwords))
 
 ###############################################################################
-# 환경 변수 로드 & OpenAI API 키
+# 환경 변수 로드 & OpenAI API 키 설정
 ###############################################################################
 dotenv_path = Path(".env")
 load_dotenv(dotenv_path=dotenv_path)
@@ -48,7 +48,7 @@ if not OPENAI_API_KEY:
     st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다.")
     st.stop()
 
-# API 키 설정 (client 인스턴스 생성 없이 사용)
+# API 키 설정 (OpenAI 클래스 인스턴스 생성 없이 사용)
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
