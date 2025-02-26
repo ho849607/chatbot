@@ -48,3 +48,4 @@ google-auth-oauthlib
 # Streamlit에서 그리기 캔버스
 # ─────────────────────────────────────────────────────────────
 streamlit-drawable-canvas
+streamlit_image_paste
