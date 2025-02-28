@@ -2,7 +2,7 @@ import os
 import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
-import openai
+from openai import OpenAI  # OpenAI 클래스 import
 from pathlib import Path
 import docx2txt
 import pdfplumber
@@ -41,7 +41,8 @@ if not OPENAI_API_KEY:
     st.error("🚨 OpenAI API 키가 설정되지 않았습니다. .env 파일을 확인하세요.")
     st.stop()
 
-openai.api_key = OPENAI_API_KEY
+# OpenAI 클라이언트 생성
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 ###############################################################################
 # OpenAI API 마이그레이션 (예전 버전 호환 - 필요 시)
@@ -61,7 +62,7 @@ def migrate_openai_api():
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     """GPT 모델과 대화하는 함수"""
     try:
-        resp = openai.ChatCompletion.create(
+        resp = client.chat.completions.create(  # client 사용
             model=model_name,
             messages=messages,
             temperature=temperature,
