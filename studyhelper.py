@@ -2,7 +2,11 @@ import os
 import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
-from openai import OpenAI  # OpenAI 클래스 import
+# OpenAI 클래스를 불러올 수 없는 경우에도 Gemini API로 대체할 수 있도록 합니다.
+try:
+    from openai import OpenAI  # OpenAI 클래스 import
+except ImportError:
+    OpenAI = None
 from pathlib import Path
 import docx2txt
 import pdfplumber
@@ -31,18 +35,20 @@ english_stopwords = set(stopwords.words("english"))
 final_stopwords = english_stopwords.union(set(korean_stopwords))
 
 ###############################################################################
-# 환경 변수 & OpenAI API 설정
+# 환경 변수 & API 설정
 ###############################################################################
 dotenv_path = Path(".env")
 load_dotenv(dotenv_path=dotenv_path)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    st.error("🚨 OpenAI API 키가 설정되지 않았습니다. .env 파일을 확인하세요.")
-    st.stop()
-
-# OpenAI 클라이언트 생성
-client = OpenAI(api_key=OPENAI_API_KEY)
+# OpenAI API 키가 없거나 OpenAI 모듈을 불러오지 못한 경우 Gemini API를 사용하도록 설정합니다.
+if not OPENAI_API_KEY or OpenAI is None:
+    st.warning("🚨 OpenAI API 키를 불러올 수 없으므로 Google Gemini API를 사용합니다.")
+    use_gemini_always = True
+else:
+    use_gemini_always = False
+    # OpenAI 클라이언트 생성
+    client = OpenAI(api_key=OPENAI_API_KEY)
 
 ###############################################################################
 # OpenAI API 마이그레이션 (예전 버전 호환 - 필요 시)
@@ -60,7 +66,9 @@ def migrate_openai_api():
 # GPT API 호출 함수 (문서 분석 & 질문 & 맞춤법 수정)
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
-    """GPT 모델과 대화하는 함수"""
+    """OpenAI의 GPT 모델과 대화하는 함수. 만약 호출에 실패하거나 API 키가 없으면 Google Gemini API로 fallback."""
+    if use_gemini_always:
+        return ask_gemini(messages, model_name="gemini", temperature=temperature)
     try:
         resp = client.chat.completions.create(
             model=model_name,
@@ -69,11 +77,8 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
-        error_message = str(e)
-        if "no longer supported" in error_message:
-            migrate_openai_api()
-        st.error(f"🚨 OpenAI API 호출 에러: {e}")
-        return ""
+        st.error(f"🚨 OpenAI API 호출 에러: {e}. Google Gemini API로 전환합니다.")
+        return ask_gemini(messages, model_name="gemini", temperature=temperature)
 
 ###############################################################################
 # Google Gemini API 호출 함수 (예시)
@@ -246,7 +251,7 @@ def gpt_chat_tab():
                 {"role": "system", "content": "당신은 사용자가 업로드한 문서를 기반으로 질문에 답변하는 도우미입니다. 문서 내용: " + st.session_state.document_text},
                 {"role": "user", "content": user_input}
             ]
-            # 선택한 AI 모델에 따라 호출
+            # 선택한 AI 모델에 따라 호출 (모델 선택과 별개로, OpenAI API 호출 실패 시 fallback도 적용됩니다.)
             if ai_provider == "ChatGPT":
                 ai_response = ask_gpt(chat_prompt)
             else:
@@ -315,7 +320,7 @@ def main():
     st.title("📚 ThinHelper - 생각도우미")
 
     st.markdown("""
-    **이 앱은 파일 업로드와 GPT 기반 문서 분석 기능을 제공합니다.**
+    **이 앱은 파일 업로드와 AI 기반 문서 분석 기능을 제공합니다.**
     
     - **GPT 문서 분석 탭:**  
       1. PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 문서를 분석합니다.  
