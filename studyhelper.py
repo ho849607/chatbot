@@ -153,7 +153,7 @@ def gpt_document_review(text):
 # GPT 채팅 + 문서 분석 탭
 ###############################################################################
 def gpt_chat_tab():
-    st.header("📌 LearnSeek - 문서 분석 & GPT 조언")
+    # 헤더 제거 후 사용법 안내만 표시합니다.
     st.info("""
     **[Think Spot 사용법]**
     1️⃣ **PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 분석합니다.**  
