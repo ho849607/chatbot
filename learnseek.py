@@ -15,7 +15,7 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 
 ###############################################################################
-# NLTK 설정 (필요 시)
+# NLTK 설정 (불용어 자동 다운로드)
 ###############################################################################
 nltk_data_dir = "/tmp/nltk_data"
 os.makedirs(nltk_data_dir, exist_ok=True)
@@ -157,8 +157,8 @@ def gpt_chat_tab():
     st.info("""
     **[LearnSeek 사용법]**
     1️⃣ **PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 분석합니다.**  
-    2️⃣ **문서 요약, 수정할 부분, 사용자에게 던질 질문을 제공합니다.**  
-    3️⃣ **GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.**
+    2️⃣ 문서의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
+    3️⃣ GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
     """)
 
     uploaded_files = st.file_uploader(
@@ -207,7 +207,7 @@ def community_tab():
     content = st.text_area("내용")
     uploaded_files = st.file_uploader("📎 파일 업로드", type=["pdf", "pptx", "docx"], accept_multiple_files=True)
 
-    if st.button("게시글 등록"):
+    if st.button("✅ 게시글 등록"):
         if title.strip() and content.strip():
             files_info = []
             if uploaded_files:
@@ -241,7 +241,7 @@ def main():
     
     - **GPT 문서 분석 탭:**  
       1. PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 문서를 분석합니다.  
-      2. 문서 요약, 수정할 부분, 사용자에게 던질 질문을 제공합니다.  
+      2. 문서 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
       3. GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
     - **커뮤니티 탭:**  
       게시글 등록, 검색, 댓글 기능을 통해 문서를 공유하고 토론합니다.
