@@ -161,30 +161,36 @@ def gpt_chat_tab():
 2. 문서의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.
 3. GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
     """)
-
+    
+    # 파일 업로드 후에만 GPT 채팅창(문서 분석 결과)를 표시합니다.
     uploaded_files = st.file_uploader(
         "📎 문서를 업로드하세요 (PDF/PPTX/DOCX 지원)",
         type=["pdf", "pptx", "docx"],
         accept_multiple_files=False
     )
+    
+    if not uploaded_files:
+        st.info("파일을 업로드하시면 문서 분석 및 GPT 채팅창이 표시됩니다.")
+        return
 
-    if uploaded_files:
-        file_bytes = uploaded_files.getvalue()
-        fileinfo = {
-            "name": uploaded_files.name,
-            "ext": uploaded_files.name.split(".")[-1].lower(),
-            "data": file_bytes
-        }
-        with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
-            document_text = analyze_file(fileinfo)
-            # GPT 문서 분석 실행
-            summary, questions, corrections = gpt_document_review(document_text)
-            st.subheader("📌 문서 요약")
-            st.write(summary)
-            st.subheader("💡 고려해야 할 질문")
-            st.write(questions)
-            st.subheader("✍️ 맞춤법 및 문장 수정")
-            st.write(corrections)
+    file_bytes = uploaded_files.getvalue()
+    fileinfo = {
+        "name": uploaded_files.name,
+        "ext": uploaded_files.name.split(".")[-1].lower(),
+        "data": file_bytes
+    }
+    with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
+        document_text = analyze_file(fileinfo)
+        # GPT 문서 분석 실행
+        summary, questions, corrections = gpt_document_review(document_text)
+        st.subheader("📌 문서 요약")
+        st.write(summary)
+        st.subheader("💡 고려해야 할 질문")
+        st.write(questions)
+        st.subheader("✍️ 맞춤법 및 문장 수정")
+        st.write(corrections)
+    
+    st.warning("주의: ChatGPT는 실수를 할 수 있으므로 결과를 반드시 확인해주세요.")
 
 ###############################################################################
 # 커뮤니티 탭
