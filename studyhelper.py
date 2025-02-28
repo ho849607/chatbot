@@ -147,49 +147,99 @@ def gpt_document_review(text):
     return summary, questions, corrections
 
 ###############################################################################
-# GPT 문서 분석 탭
+# 대화형 채팅 기능 (파일 업로드 시 자동 표시)
 ###############################################################################
-def gpt_analysis_tab():
-    if st.session_state.document_text:
-        summary, questions, corrections = gpt_document_review(st.session_state.document_text)
-        important_words = extract_important_words(st.session_state.document_text)
-        st.subheader("📌 중요 단어")
-        st.write(", ".join(important_words))
-        st.subheader("📌 문서 요약")
-        st.write(summary)
-        st.subheader("💡 고려해야 할 질문")
-        st.write(questions)
-        st.subheader("✍️ 맞춤법 및 문장 수정")
-        st.write(corrections)
-    else:
-        st.info("먼저 문서를 업로드하세요.")
+def show_interactive_chat(document_text):
+    if 'conversation' not in st.session_state:
+        st.session_state.conversation = []
+    
+    st.info("문서에 대해 질문하세요. GPT가 문서 내용을 바탕으로 답변하며, 필요 시 질문을 던지고 근거를 제공합니다.")
+    
+    # 대화 기록 표시
+    for msg in st.session_state.conversation:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+    
+    # 사용자 입력 처리
+    user_input = st.chat_input("여기에 메시지를 입력하세요...")
+    if user_input:
+        st.session_state.conversation.append({"role": "user", "content": user_input})
+        system_prompt = {
+            "role": "system",
+            "content": "You are an assistant helping with document analysis. Answer the user's questions based on the provided document. Include direct quotes from the document as evidence when possible. If the user's question is unclear, ask a clarifying question."
+        }
+        messages = [system_prompt, {"role": "user", "content": f"Here is the document: {document_text}"}] + st.session_state.conversation
+        response = ask_gpt(messages)
+        st.session_state.conversation.append({"role": "assistant", "content": response})
+    
+    # 대화 초기화 버튼
+    if st.button("대화 초기화"):
+        st.session_state.conversation = []
+        st.experimental_rerun()
 
 ###############################################################################
-# 대화형 채팅 탭
+# 메인 실행
 ###############################################################################
-def interactive_chat_tab():
-    if st.session_state.document_text:
-        if 'conversation' not in st.session_state:
-            st.session_state.conversation = []
-        st.info("문서에 대해 질문하세요. GPT가 문서 내용을 바탕으로 답변하며, 필요 시 질문을 던지고 근거를 제공합니다.")
-        for msg in st.session_state.conversation:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-        user_input = st.chat_input("여기에 메시지를 입력하세요...")
-        if user_input:
-            st.session_state.conversation.append({"role": "user", "content": user_input})
-            system_prompt = {
-                "role": "system",
-                "content": "You are an assistant helping with document analysis. Answer the user's questions based on the provided document. Include direct quotes from the document as evidence when possible. If the user's question is unclear, ask a clarifying question."
+def main():
+    st.title("📚 ThinHelper - 생각도우미")
+
+    st.markdown("""
+    **이 앱은 파일 업로드와 GPT 기반 문서 분석 기능을 제공합니다.**
+    
+    - **파일 업로드:** PDF, PPTX, DOCX 파일을 업로드하세요.
+    - **문서 분석:** 문서 요약, 중요 단어, 수정 제안, 질문을 제공합니다.
+    - **대화형 채팅:** 파일 업로드 시 자동으로 채팅창이 나타나며, 문서에 대해 질문하고 GPT의 답변을 받습니다.
+    - **커뮤니티:** 게시글 등록, 검색, 댓글 기능을 통해 문서를 공유하고 토론합니다.
+    """)
+
+    # 세션 상태 초기화
+    if 'uploaded_file' not in st.session_state:
+        st.session_state.uploaded_file = None
+    if 'document_text' not in st.session_state:
+        st.session_state.document_text = None
+
+    # 파일 업로드
+    uploaded_file = st.file_uploader("📎 문서를 업로드하세요 (PDF/PPTX/DOCX 지원)", type=["pdf", "pptx", "docx"])
+
+    if uploaded_file:
+        if st.session_state.uploaded_file != uploaded_file:
+            st.session_state.uploaded_file = uploaded_file
+            file_bytes = uploaded_file.getvalue()
+            fileinfo = {
+                "name": uploaded_file.name,
+                "ext": uploaded_file.name.split(".")[-1].lower(),
+                "data": file_bytes
             }
-            messages = [system_prompt, {"role": "user", "content": f"Here is the document: {st.session_state.document_text}"}] + st.session_state.conversation
-            response = ask_gpt(messages)
-            st.session_state.conversation.append({"role": "assistant", "content": response})
-        if st.button("대화 초기화"):
-            st.session_state.conversation = []
-            st.experimental_rerun()
+            with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
+                st.session_state.document_text = analyze_file(fileinfo)
+
+    # 탭 선택
+    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티"))
+
+    if tab == "GPT 문서 분석":
+        if st.session_state.document_text:
+            # 문서 분석 결과 표시
+            summary, questions, corrections = gpt_document_review(st.session_state.document_text)
+            important_words = extract_important_words(st.session_state.document_text)
+            st.subheader("📌 중요 단어")
+            st.write(", ".join(important_words))
+            st.subheader("📌 문서 요약")
+            st.write(summary)
+            st.subheader("💡 고려해야 할 질문")
+            st.write(questions)
+            st.subheader("✍️ 맞춤법 및 문장 수정")
+            st.write(corrections)
+            
+            # 파일 업로드 시 자동으로 대화형 채팅창 표시
+            st.subheader("💬 대화형 채팅")
+            show_interactive_chat(st.session_state.document_text)
+        else:
+            st.info("먼저 문서를 업로드하세요.")
     else:
-        st.info("먼저 문서를 업로드하세요.")
+        community_tab()
+
+if __name__ == "__main__":
+    main()
 
 ###############################################################################
 # 커뮤니티 탭 (기존 코드 유지)
@@ -235,52 +285,6 @@ def community_tab():
                     post["comments"].append(f"📝 유저_{random.randint(100,999)}: {comment}")
                 for c in post["comments"]:
                     st.write(c)
-
-###############################################################################
-# 메인 실행
-###############################################################################
-def main():
-    st.title("📚 ThinHelper - 생각도우미")
-
-    st.markdown("""
-    **이 앱은 파일 업로드와 GPT 기반 문서 분석 기능을 제공합니다.**
-    
-    - **파일 업로드:** PDF, PPTX, DOCX 파일을 업로드하세요.
-    - **GPT 문서 분석 탭:** 문서 요약, 중요 단어, 수정 제안, 질문을 제공합니다.
-    - **대화형 채팅 탭:** 문서에 대해 질문하고 GPT의 답변을 받습니다.
-    - **커뮤니티 탭:** 게시글 등록, 검색, 댓글 기능을 통해 문서를 공유하고 토론합니다.
-    """)
-
-    if 'uploaded_file' not in st.session_state:
-        st.session_state.uploaded_file = None
-    if 'document_text' not in st.session_state:
-        st.session_state.document_text = None
-
-    uploaded_file = st.file_uploader("📎 문서를 업로드하세요 (PDF/PPTX/DOCX 지원)", type=["pdf", "pptx", "docx"])
-
-    if uploaded_file:
-        if st.session_state.uploaded_file != uploaded_file:
-            st.session_state.uploaded_file = uploaded_file
-            file_bytes = uploaded_file.getvalue()
-            fileinfo = {
-                "name": uploaded_file.name,
-                "ext": uploaded_file.name.split(".")[-1].lower(),
-                "data": file_bytes
-            }
-            with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
-                st.session_state.document_text = analyze_file(fileinfo)
-
-    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "대화형 채팅", "커뮤니티"))
-
-    if tab == "GPT 문서 분석":
-        gpt_analysis_tab()
-    elif tab == "대화형 채팅":
-        interactive_chat_tab()
-    else:
-        community_tab()
-
-if __name__ == "__main__":
-    main()
 
 ###############################################################################
 # 저작권 주의 문구 (Copyright Notice)
