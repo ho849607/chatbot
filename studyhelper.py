@@ -76,6 +76,28 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         return ""
 
 ###############################################################################
+# Google Gemini API 호출 함수 (예시)
+###############################################################################
+def ask_gemini(messages, model_name="gemini", temperature=0.7):
+    """
+    Google Gemini API 호출 함수 (실제 구현은 Gemini API 문서에 따라 수정)
+    현재는 예시용 placeholder 함수입니다.
+    """
+    try:
+        # 실제 Gemini API 호출 코드를 이곳에 추가합니다.
+        # 예시:
+        # response = gemini_client.chat.completions.create(
+        #     model=model_name,
+        #     messages=messages,
+        #     temperature=temperature,
+        # )
+        # return response.choices[0].message.content.strip()
+        return "Google Gemini API 응답 예시: 아직 구현되지 않은 기능입니다."
+    except Exception as e:
+        st.error(f"🚨 Google Gemini API 호출 에러: {e}")
+        return ""
+
+###############################################################################
 # 문서 분석 함수 (PDF, PPTX, DOCX)
 ###############################################################################
 def parse_docx(file_bytes):
@@ -151,7 +173,7 @@ def gpt_document_review(text):
     return summary, questions, corrections
 
 ###############################################################################
-# GPT 채팅 + 문서 분석 탭
+# GPT/AI 채팅 + 문서 분석 탭
 ###############################################################################
 def gpt_chat_tab():
     # 사용법 안내
@@ -160,9 +182,12 @@ def gpt_chat_tab():
 
 1. PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 분석합니다.
 2. 문서의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.
-3. GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
-4. 아래 채팅창에서 GPT와 대화할 수 있습니다.
+3. AI가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
+4. 아래 채팅창에서 AI와 대화할 수 있습니다.
     """)
+    
+    # AI 모델 선택 (ChatGPT 또는 Google Gemini)
+    ai_provider = st.radio("사용할 AI 모델 선택", ("ChatGPT", "Google Gemini"), index=0)
     
     # 세션 상태에 채팅 기록 저장
     if "chat_history" not in st.session_state:
@@ -175,25 +200,26 @@ def gpt_chat_tab():
         accept_multiple_files=False
     )
     
-    # 파일이 새로 업로드되었으면 분석 실행
-    if uploaded_file is not None:
-        file_bytes = uploaded_file.getvalue()
-        fileinfo = {
-            "name": uploaded_file.name,
-            "ext": uploaded_file.name.split(".")[-1].lower(),
-            "data": file_bytes
-        }
-        with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
-            document_text = analyze_file(fileinfo)
-            # GPT 문서 분석 실행
-            summary, questions, corrections = gpt_document_review(document_text)
-            # 분석 결과를 세션 상태에 저장
-            st.session_state.document_text = document_text
-            st.session_state.summary = summary
-            st.session_state.questions = questions
-            st.session_state.corrections = corrections
-    elif "document_text" not in st.session_state:
-        st.info("파일을 업로드하시면 문서 분석 결과가 표시됩니다.")
+    # 파일이 새로 업로드되었거나 분석 결과가 없으면 분석 실행
+    if uploaded_file is not None or "document_text" not in st.session_state:
+        if uploaded_file is not None:
+            file_bytes = uploaded_file.getvalue()
+            fileinfo = {
+                "name": uploaded_file.name,
+                "ext": uploaded_file.name.split(".")[-1].lower(),
+                "data": file_bytes
+            }
+            with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
+                document_text = analyze_file(fileinfo)
+                # GPT 문서 분석 실행
+                summary, questions, corrections = gpt_document_review(document_text)
+                # 분석 결과를 세션 상태에 저장
+                st.session_state.document_text = document_text
+                st.session_state.summary = summary
+                st.session_state.questions = questions
+                st.session_state.corrections = corrections
+        else:
+            st.info("파일을 업로드하시면 문서 분석 결과가 표시됩니다.")
     
     # 분석 결과가 세션에 있으면 표시
     if "document_text" in st.session_state:
@@ -206,23 +232,27 @@ def gpt_chat_tab():
     else:
         st.info("먼저 문서를 업로드하여 분석 결과를 받아주세요.")
     
-    st.warning("주의: ChatGPT는 실수를 할 수 있으므로 결과를 반드시 확인해주세요.")
+    st.warning("주의: AI 모델은 실수를 할 수 있으므로 결과를 반드시 확인해주세요.")
 
     # 채팅창 추가
-    st.subheader("💬 GPT와 대화하기")
+    st.subheader("💬 AI와 대화하기")
     user_input = st.text_input("질문을 입력하세요", key="chat_input")
     if st.button("전송"):
         if user_input.strip() and "document_text" in st.session_state:
             # 사용자 입력을 채팅 기록에 추가
             st.session_state.chat_history.append({"role": "user", "content": user_input})
-            # GPT에 세션에 저장된 문서 내용과 사용자 질문을 함께 전달
+            # 세션에 저장된 문서 내용을 활용하여 채팅 프롬프트 생성
             chat_prompt = [
                 {"role": "system", "content": "당신은 사용자가 업로드한 문서를 기반으로 질문에 답변하는 도우미입니다. 문서 내용: " + st.session_state.document_text},
                 {"role": "user", "content": user_input}
             ]
-            gpt_response = ask_gpt(chat_prompt)
-            # GPT 응답을 채팅 기록에 추가
-            st.session_state.chat_history.append({"role": "assistant", "content": gpt_response})
+            # 선택한 AI 모델에 따라 호출
+            if ai_provider == "ChatGPT":
+                ai_response = ask_gpt(chat_prompt)
+            else:
+                ai_response = ask_gemini(chat_prompt)
+            # AI 응답을 채팅 기록에 추가
+            st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
         elif "document_text" not in st.session_state:
             st.error("먼저 문서를 업로드해 주세요.")
     
@@ -231,7 +261,7 @@ def gpt_chat_tab():
         if message["role"] == "user":
             st.write(f"**사용자**: {message['content']}")
         else:
-            st.write(f"**GPT**: {message['content']}")
+            st.write(f"**AI**: {message['content']}")
 
 ###############################################################################
 # 커뮤니티 탭
@@ -290,7 +320,7 @@ def main():
     - **GPT 문서 분석 탭:**  
       1. PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 문서를 분석합니다.  
       2. 문서 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
-      3. GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
+      3. AI가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
     - **커뮤니티 탭:**  
       게시글 등록, 검색, 댓글 기능을 통해 문서를 공유하고 토론합니다.
     """)
