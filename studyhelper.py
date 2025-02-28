@@ -62,7 +62,7 @@ def migrate_openai_api():
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     """GPT 모델과 대화하는 함수"""
     try:
-        resp = client.chat.completions.create(  # client 사용
+        resp = client.chat.completions.create(
             model=model_name,
             messages=messages,
             temperature=temperature,
@@ -167,34 +167,44 @@ def gpt_chat_tab():
     # 세션 상태에 채팅 기록 저장
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-
-    # 파일 업로드 후에만 GPT 채팅창(문서 분석 결과)를 표시합니다.
-    uploaded_files = st.file_uploader(
+    
+    # 파일 업로드 처리 및 분석 결과를 세션에 저장 (한 번 분석 후 재사용)
+    uploaded_file = st.file_uploader(
         "📎 문서를 업로드하세요 (PDF/PPTX/DOCX 지원)",
         type=["pdf", "pptx", "docx"],
         accept_multiple_files=False
     )
     
-    if not uploaded_files:
-        st.info("파일을 업로드하시면 문서 분석 및 GPT 채팅창이 표시됩니다.")
-        return
-
-    file_bytes = uploaded_files.getvalue()
-    fileinfo = {
-        "name": uploaded_files.name,
-        "ext": uploaded_files.name.split(".")[-1].lower(),
-        "data": file_bytes
-    }
-    with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
-        document_text = analyze_file(fileinfo)
-        # GPT 문서 분석 실행
-        summary, questions, corrections = gpt_document_review(document_text)
+    # 파일이 새로 업로드되었으면 분석 실행
+    if uploaded_file is not None:
+        file_bytes = uploaded_file.getvalue()
+        fileinfo = {
+            "name": uploaded_file.name,
+            "ext": uploaded_file.name.split(".")[-1].lower(),
+            "data": file_bytes
+        }
+        with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
+            document_text = analyze_file(fileinfo)
+            # GPT 문서 분석 실행
+            summary, questions, corrections = gpt_document_review(document_text)
+            # 분석 결과를 세션 상태에 저장
+            st.session_state.document_text = document_text
+            st.session_state.summary = summary
+            st.session_state.questions = questions
+            st.session_state.corrections = corrections
+    elif "document_text" not in st.session_state:
+        st.info("파일을 업로드하시면 문서 분석 결과가 표시됩니다.")
+    
+    # 분석 결과가 세션에 있으면 표시
+    if "document_text" in st.session_state:
         st.subheader("📌 문서 요약")
-        st.write(summary)
+        st.write(st.session_state.summary)
         st.subheader("💡 고려해야 할 질문")
-        st.write(questions)
+        st.write(st.session_state.questions)
         st.subheader("✍️ 맞춤법 및 문장 수정")
-        st.write(corrections)
+        st.write(st.session_state.corrections)
+    else:
+        st.info("먼저 문서를 업로드하여 분석 결과를 받아주세요.")
     
     st.warning("주의: ChatGPT는 실수를 할 수 있으므로 결과를 반드시 확인해주세요.")
 
@@ -202,18 +212,20 @@ def gpt_chat_tab():
     st.subheader("💬 GPT와 대화하기")
     user_input = st.text_input("질문을 입력하세요", key="chat_input")
     if st.button("전송"):
-        if user_input.strip():
+        if user_input.strip() and "document_text" in st.session_state:
             # 사용자 입력을 채팅 기록에 추가
             st.session_state.chat_history.append({"role": "user", "content": user_input})
-            # GPT에 문서 내용과 사용자 질문을 함께 전달
+            # GPT에 세션에 저장된 문서 내용과 사용자 질문을 함께 전달
             chat_prompt = [
-                {"role": "system", "content": "당신은 사용자가 업로드한 문서를 기반으로 질문에 답변하는 도우미입니다. 문서 내용: " + document_text},
+                {"role": "system", "content": "당신은 사용자가 업로드한 문서를 기반으로 질문에 답변하는 도우미입니다. 문서 내용: " + st.session_state.document_text},
                 {"role": "user", "content": user_input}
             ]
             gpt_response = ask_gpt(chat_prompt)
             # GPT 응답을 채팅 기록에 추가
             st.session_state.chat_history.append({"role": "assistant", "content": gpt_response})
-
+        elif "document_text" not in st.session_state:
+            st.error("먼저 문서를 업로드해 주세요.")
+    
     # 채팅 기록 표시
     for message in st.session_state.chat_history:
         if message["role"] == "user":
