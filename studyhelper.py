@@ -33,14 +33,17 @@ final_stopwords = english_stopwords.union(set(korean_stopwords))
 ###############################################################################
 # 환경 변수 & OpenAI API 설정
 ###############################################################################
-dotenv_path = Path(".env")
-load_dotenv(dotenv_path=dotenv_path)
+# 로컬 환경에서만 .env 파일 로드
+if not os.getenv("OPENAI_API_KEY"):  # 환경 변수가 이미 설정되어 있는지 확인
+    dotenv_path = Path(".env")
+    load_dotenv(dotenv_path=dotenv_path)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    st.error("🚨 OpenAI API 키가 설정되지 않았습니다. .env 파일을 확인하세요.")
+    st.error("🚨 OpenAI API 키가 설정되지 않았습니다. 로컬에서는 .env 파일을, Streamlit Cloud에서는 'Settings'에서 환경 변수를 추가하세요.")
     st.stop()
 
+# OpenAI API 키 설정
 openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
@@ -49,7 +52,7 @@ openai.api_key = OPENAI_API_KEY
 def migrate_openai_api():
     try:
         subprocess.run(["openai", "migrate"], capture_output=True, text=True, check=True)
-        st.info("OpenAI API 마이그레이션 완료. 앱 재시작 후 사용하세요.")
+        st.info("OpenAI API 마이그레이션 완료. 앱을 재시작하세요.")
         st.stop()
     except Exception as e:
         st.error(f"API 마이그레이션 실패: {e}")
@@ -61,7 +64,7 @@ def migrate_openai_api():
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     """GPT 모델과 대화하는 함수"""
     try:
-        resp = openai.ChatCompletion.create(
+        resp = openai.chat.completions.create(  # 최신 openai 라이브러리 사용
             model=model_name,
             messages=messages,
             temperature=temperature,
@@ -153,7 +156,6 @@ def gpt_document_review(text):
 # GPT 채팅 + 문서 분석 탭
 ###############################################################################
 def gpt_chat_tab():
-    # 사용법 안내: 상단에 "사용법" 제목과 번호 리스트로 부연 설명
     st.info("""
 **사용법**
 
@@ -162,7 +164,6 @@ def gpt_chat_tab():
 3. GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
     """)
     
-    # 파일 업로드 후에만 GPT 채팅창(문서 분석 결과)를 표시합니다.
     uploaded_files = st.file_uploader(
         "📎 문서를 업로드하세요 (PDF/PPTX/DOCX 지원)",
         type=["pdf", "pptx", "docx"],
@@ -181,7 +182,6 @@ def gpt_chat_tab():
     }
     with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
         document_text = analyze_file(fileinfo)
-        # GPT 문서 분석 실행
         summary, questions, corrections = gpt_document_review(document_text)
         st.subheader("📌 문서 요약")
         st.write(summary)
