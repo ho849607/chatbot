@@ -2,34 +2,27 @@ import os
 import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
-from openai import OpenAI
+import openai
 from pathlib import Path
-import hashlib
-import base64
+import docx2txt
+import pdfplumber
+from pptx import Presentation
 import random
 import subprocess
 
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
-import docx2txt
-import pdfplumber
-from pptx import Presentation
 
 ###############################################################################
 # NLTK 설정 (필요 시)
 ###############################################################################
 nltk_data_dir = "/tmp/nltk_data"
 os.makedirs(nltk_data_dir, exist_ok=True)
-os.environ["NLTK_DATA"] = nltk_data_dir
 nltk.data.path.append(nltk_data_dir)
 
 try:
-    nltk.data.find("tokenizers/punkt")
-except LookupError:
-    nltk.download("punkt", download_dir=nltk_data_dir)
-try:
-    nltk.data.find("corpora/stopwords")
+    stopwords.words("english")
 except LookupError:
     nltk.download("stopwords", download_dir=nltk_data_dir)
 
@@ -38,19 +31,17 @@ english_stopwords = set(stopwords.words("english"))
 final_stopwords = english_stopwords.union(set(korean_stopwords))
 
 ###############################################################################
-# 환경 변수 & OpenAI API
+# 환경 변수 & OpenAI API 설정
 ###############################################################################
 dotenv_path = Path(".env")
 load_dotenv(dotenv_path=dotenv_path)
 
-# 여기서는 예시로 직접 키 하드코딩해도 되지만, 보안상 .env 파일 사용 권장
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    st.error("서버에 OPENAI_API_KEY가 설정되지 않았습니다.")
+    st.error("🚨 OpenAI API 키가 설정되지 않았습니다. .env 파일을 확인하세요.")
     st.stop()
 
-# OpenAI 클라이언트 초기화
-client = OpenAI(api_key=OPENAI_API_KEY)
+openai.api_key = OPENAI_API_KEY
 
 ###############################################################################
 # OpenAI API 마이그레이션 (예전 버전 호환 - 필요 시)
@@ -65,11 +56,12 @@ def migrate_openai_api():
         st.stop()
 
 ###############################################################################
-# GPT 함수
+# GPT API 호출 함수 (문서 분석 & 질문 & 맞춤법 수정)
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
+    """GPT 모델과 대화하는 함수"""
     try:
-        resp = client.chat.completions.create(
+        resp = openai.ChatCompletion.create(
             model=model_name,
             messages=messages,
             temperature=temperature,
@@ -79,19 +71,21 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         error_message = str(e)
         if "no longer supported" in error_message:
             migrate_openai_api()
-        st.error(f"OpenAI API 호출 에러: {e}")
+        st.error(f"🚨 OpenAI API 호출 에러: {e}")
         return ""
 
 ###############################################################################
-# 파일 분석 로직
+# 문서 분석 함수 (PDF, PPTX, DOCX)
 ###############################################################################
 def parse_docx(file_bytes):
+    """DOCX 파일에서 텍스트 추출"""
     try:
         return docx2txt.process(BytesIO(file_bytes))
     except Exception:
-        return "DOCX 파일 분석 오류"
+        return "📄 DOCX 파일 분석 오류"
 
 def parse_pdf(file_bytes):
+    """PDF 파일에서 텍스트 추출"""
     text_list = []
     try:
         with pdfplumber.open(BytesIO(file_bytes)) as pdf:
@@ -99,9 +93,10 @@ def parse_pdf(file_bytes):
                 text_list.append(page.extract_text() or "")
         return "\n".join(text_list)
     except Exception:
-        return "PDF 파일 분석 오류"
+        return "📄 PDF 파일 분석 오류"
 
 def parse_ppt(file_bytes):
+    """PPTX 파일에서 텍스트 추출"""
     text_list = []
     try:
         prs = Presentation(BytesIO(file_bytes))
@@ -111,14 +106,10 @@ def parse_ppt(file_bytes):
                     text_list.append(shape.text)
         return "\n".join(text_list)
     except Exception:
-        return "PPTX 파일 분석 오류"
-
-def parse_image(file_bytes):
-    """OCR 미구현 - 단순 안내문 반환"""
-    return "[이미지 파일] OCR 분석 기능 추가 가능"
+        return "📄 PPTX 파일 분석 오류"
 
 def analyze_file(fileinfo):
-    """파일 확장자에 맞춰 파싱 함수 호출"""
+    """업로드된 파일을 분석"""
     ext = fileinfo["ext"]
     data = fileinfo["data"]
     if ext == "docx":
@@ -127,63 +118,72 @@ def analyze_file(fileinfo):
         return parse_pdf(data)
     elif ext == "pptx":
         return parse_ppt(data)
-    elif ext in ["jpg", "jpeg", "png"]:
-        return parse_image(data)
     else:
-        return "지원하지 않는 파일 형식입니다."
+        return "❌ 지원하지 않는 파일 형식입니다."
 
 ###############################################################################
-# GPT 채팅 탭
+# GPT 문서 분석 & 질문 & 수정 기능
+###############################################################################
+def gpt_document_review(text):
+    """GPT가 문서를 분석하여 요약, 질문 및 수정"""
+    # 1. 문서 요약 요청
+    summary_prompt = [
+        {"role": "system", "content": "주어진 문서를 요약하고 주요 내용을 정리하세요."},
+        {"role": "user", "content": text}
+    ]
+    summary = ask_gpt(summary_prompt)
+
+    # 2. 사용자에게 질문 던지기
+    question_prompt = [
+        {"role": "system", "content": "주어진 문서를 검토하고, 사용자가 수정하거나 고려해야 할 질문을 3가지 제시하세요."},
+        {"role": "user", "content": text}
+    ]
+    questions = ask_gpt(question_prompt)
+
+    # 3. 맞춤법 및 문장 수정 요청
+    correction_prompt = [
+        {"role": "system", "content": "이 문서에서 맞춤법과 문법 오류를 수정하고, 수정한 부분을 강조하세요."},
+        {"role": "user", "content": text}
+    ]
+    corrections = ask_gpt(correction_prompt)
+
+    return summary, questions, corrections
+
+###############################################################################
+# GPT 채팅 + 문서 분석 탭
 ###############################################################################
 def gpt_chat_tab():
-    st.header("📌 GPT 채팅")
+    st.header("📌 LearnSeek - 문서 분석 & GPT 조언")
     st.info("""
-    **[GPT 채팅 사용법]**
-    1. 아래의 파일 업로드 영역에서 PDF/PPTX/DOCX/이미지(JPG/PNG) 파일을 선택하면 자동으로 분석됩니다.
-    2. 분석 결과는 채팅 형식으로 표시됩니다.
-    3. 메시지 입력란에 질문을 작성하면 GPT가 답변을 제공합니다.
+    **[LearnSeek 사용법]**
+    1️⃣ **PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 분석합니다.**  
+    2️⃣ **문서 요약, 수정할 부분, 사용자에게 던질 질문을 제공합니다.**  
+    3️⃣ **GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.**
     """)
 
-    # 기존 채팅 기록
-    if "chat_messages" not in st.session_state:
-        st.session_state.chat_messages = []
-
-    for msg in st.session_state.chat_messages:
-        role, content = msg["role"], msg["content"]
-        with st.chat_message(role):
-            st.write(content)
-
-    # ------------------------- 1) 일반 파일 업로드 -----------------------------
     uploaded_files = st.file_uploader(
-        "파일 업로드 (PDF/PPTX/DOCX/JPG/PNG)",
-        type=["pdf", "pptx", "docx", "jpg", "png"],
-        accept_multiple_files=True
+        "📎 문서를 업로드하세요 (PDF/PPTX/DOCX 지원)",
+        type=["pdf", "pptx", "docx"],
+        accept_multiple_files=False
     )
+
     if uploaded_files:
-        for uf in uploaded_files:
-            file_bytes = uf.getvalue()
-            fileinfo = {
-                "name": uf.name,
-                "ext": uf.name.split(".")[-1].lower(),
-                "data": file_bytes
-            }
-            with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
-                analysis_result = analyze_file(fileinfo)
-            st.session_state.chat_messages.append({"role": "system", "content": f"📄 {fileinfo['name']} 분석 완료."})
-            st.session_state.chat_messages.append({"role": "assistant", "content": analysis_result})
-
-    # ------------------------- 2) 사용자 질문 입력 ------------------------------
-    user_msg = st.chat_input("메시지를 입력하세요:")
-    if user_msg:
-        st.session_state.chat_messages.append({"role": "user", "content": user_msg})
-        with st.chat_message("user"):
-            st.write(user_msg)
-
-        with st.spinner("GPT 응답 중..."):
-            gpt_response = ask_gpt(st.session_state.chat_messages)
-        st.session_state.chat_messages.append({"role": "assistant", "content": gpt_response})
-        with st.chat_message("assistant"):
-            st.write(gpt_response)
+        file_bytes = uploaded_files.getvalue()
+        fileinfo = {
+            "name": uploaded_files.name,
+            "ext": uploaded_files.name.split(".")[-1].lower(),
+            "data": file_bytes
+        }
+        with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
+            document_text = analyze_file(fileinfo)
+            # GPT 문서 분석 실행
+            summary, questions, corrections = gpt_document_review(document_text)
+            st.subheader("📌 문서 요약")
+            st.write(summary)
+            st.subheader("💡 고려해야 할 질문")
+            st.write(questions)
+            st.subheader("✍️ 맞춤법 및 문장 수정")
+            st.write(corrections)
 
 ###############################################################################
 # 커뮤니티 탭
@@ -193,7 +193,7 @@ def community_tab():
     st.info("""
     **[커뮤니티 사용법]**
     1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
-    2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(PDF/PPTX/DOCX/JPG/PNG)을 첨부하여 게시글을 등록할 수 있습니다.
+    2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(PDF/PPTX/DOCX 지원)을 첨부하여 게시글을 등록할 수 있습니다.
     3. 게시글 상세보기 영역에서 댓글을 작성할 수 있으며, 댓글 작성 시 임의의 '유저_숫자'가 부여됩니다.
     """)
     
@@ -205,7 +205,7 @@ def community_tab():
     st.subheader("📤 새로운 게시글 작성")
     title = st.text_input("제목")
     content = st.text_area("내용")
-    uploaded_files = st.file_uploader("📎 파일 업로드", type=["pdf","pptx","docx","jpg","png"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("📎 파일 업로드", type=["pdf", "pptx", "docx"], accept_multiple_files=True)
 
     if st.button("게시글 등록"):
         if title.strip() and content.strip():
@@ -214,14 +214,13 @@ def community_tab():
                 for uf in uploaded_files:
                     file_bytes = uf.getvalue()
                     ext = uf.name.split(".")[-1].lower()
-                    files_info.append({"name":uf.name, "ext":ext, "data":file_bytes})
+                    files_info.append({"name": uf.name, "ext": ext, "data": file_bytes})
             new_post = {"title": title, "content": content, "files": files_info, "comments": []}
             st.session_state.community_posts.append(new_post)
             st.success("✅ 게시글이 등록되었습니다!")
 
     st.subheader("📜 게시글 목록")
     for idx, post in enumerate(st.session_state.community_posts):
-        # 검색
         if search_query.lower() in post["title"].lower() or search_query.lower() in post["content"].lower():
             with st.expander(f"{idx+1}. {post['title']}"):
                 st.write(post["content"])
@@ -235,20 +234,21 @@ def community_tab():
 # 메인 실행
 ###############################################################################
 def main():
-    st.title("📚 StudyHelper")
+    st.title("📚 LearnSeek - AI 기반 문서 분석 & 조언")
 
     st.markdown("""
-    **이 앱은 파일 업로드와 GPT 채팅 기능을 제공합니다.**
+    **이 앱은 파일 업로드와 GPT 기반 문서 분석 기능을 제공합니다.**
     
-    - **GPT 채팅 탭**에서:
-      1. 파일 업로드 (PDF/PPTX/DOCX/JPG/PNG)
-      2. 분석 결과를 채팅 형식으로 표시
-      3. 메시지 입력(채팅)을 통해 GPT 대화
-    - **커뮤니티 탭**: 기존 게시글 등록/검색/댓글 기능
+    - **GPT 문서 분석 탭:**  
+      1. PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 문서를 분석합니다.  
+      2. 문서 요약, 수정할 부분, 사용자에게 던질 질문을 제공합니다.  
+      3. GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
+    - **커뮤니티 탭:**  
+      게시글 등록, 검색, 댓글 기능을 통해 문서를 공유하고 토론합니다.
     """)
-    
-    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 채팅", "커뮤니티"))
-    if tab == "GPT 채팅":
+
+    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티"))
+    if tab == "GPT 문서 분석":
         gpt_chat_tab()
     else:
         community_tab()
