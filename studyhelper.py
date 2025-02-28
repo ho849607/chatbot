@@ -155,7 +155,7 @@ def gpt_document_review(text):
 def gpt_chat_tab():
     st.header("📌 LearnSeek - 문서 분석 & GPT 조언")
     st.info("""
-    **[LearnSeek 사용법]**
+    **[Think Spot 사용법]**
     1️⃣ **PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 분석합니다.**  
     2️⃣ 문서의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
     3️⃣ GPT가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
