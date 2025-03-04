@@ -149,6 +149,20 @@ def analyze_file(fileinfo):
     else:
         return "❌ 지원하지 않는 파일 형식입니다."
 
+def merge_documents(file_list):
+    """여러 개의 파일을 업로드한 경우, 모든 문서의 텍스트를 하나로 병합"""
+    merged_text = ""
+    for file in file_list:
+        file_bytes = file.getvalue()
+        fileinfo = {
+            "name": file.name,
+            "ext": file.name.split(".")[-1].lower(),
+            "data": file_bytes
+        }
+        text = analyze_file(fileinfo)
+        merged_text += f"\n\n--- {file.name} ---\n\n" + text
+    return merged_text
+
 ###############################################################################
 # GPT 문서 분석 & 질문 & 수정 기능
 ###############################################################################
@@ -185,46 +199,36 @@ def gpt_chat_tab():
     st.info("""
 **사용법**
 
-1. PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 분석합니다.
+1. PDF/PPTX/DOCX 파일들을 업로드하면 AI가 자동으로 문서를 분석합니다.
 2. 문서의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.
 3. AI가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
 4. 아래 채팅창에서 AI와 대화할 수 있습니다.
     """)
-    
-    # AI 모델 선택 (ChatGPT 또는 Google Gemini)
-    ai_provider = st.radio("사용할 AI 모델 선택", ("ChatGPT", "Google Gemini"), index=0)
     
     # 세션 상태에 채팅 기록 저장
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
     
     # 파일 업로드 처리 및 분석 결과를 세션에 저장 (한 번 분석 후 재사용)
-    uploaded_file = st.file_uploader(
+    # 여러 파일 업로드를 허용하여 병합된 문서를 분석합니다.
+    uploaded_files = st.file_uploader(
         "📎 문서를 업로드하세요 (PDF/PPTX/DOCX 지원)",
         type=["pdf", "pptx", "docx"],
-        accept_multiple_files=False
+        accept_multiple_files=True
     )
     
-    # 파일이 새로 업로드되었거나 분석 결과가 없으면 분석 실행
-    if uploaded_file is not None or "document_text" not in st.session_state:
-        if uploaded_file is not None:
-            file_bytes = uploaded_file.getvalue()
-            fileinfo = {
-                "name": uploaded_file.name,
-                "ext": uploaded_file.name.split(".")[-1].lower(),
-                "data": file_bytes
-            }
-            with st.spinner(f"📖 {fileinfo['name']} 분석 중..."):
-                document_text = analyze_file(fileinfo)
-                # GPT 문서 분석 실행
-                summary, questions, corrections = gpt_document_review(document_text)
-                # 분석 결과를 세션 상태에 저장
-                st.session_state.document_text = document_text
-                st.session_state.summary = summary
-                st.session_state.questions = questions
-                st.session_state.corrections = corrections
-        else:
-            st.info("파일을 업로드하시면 문서 분석 결과가 표시됩니다.")
+    if uploaded_files is not None and len(uploaded_files) > 0:
+        with st.spinner("📖 업로드된 문서들을 분석 중..."):
+            document_text = merge_documents(uploaded_files)
+            # GPT 문서 분석 실행
+            summary, questions, corrections = gpt_document_review(document_text)
+            # 분석 결과를 세션 상태에 저장
+            st.session_state.document_text = document_text
+            st.session_state.summary = summary
+            st.session_state.questions = questions
+            st.session_state.corrections = corrections
+    elif "document_text" not in st.session_state:
+        st.info("파일을 업로드하시면 문서 분석 결과가 표시됩니다.")
     
     # 분석 결과가 세션에 있으면 표시
     if "document_text" in st.session_state:
@@ -251,11 +255,8 @@ def gpt_chat_tab():
                 {"role": "system", "content": "당신은 사용자가 업로드한 문서를 기반으로 질문에 답변하는 도우미입니다. 문서 내용: " + st.session_state.document_text},
                 {"role": "user", "content": user_input}
             ]
-            # 선택한 AI 모델에 따라 호출 (모델 선택과 별개로, OpenAI API 호출 실패 시 fallback도 적용됩니다.)
-            if ai_provider == "ChatGPT":
-                ai_response = ask_gpt(chat_prompt)
-            else:
-                ai_response = ask_gemini(chat_prompt)
+            # 항상 ask_gpt를 사용 (내부에서 자동 fallback 적용)
+            ai_response = ask_gpt(chat_prompt)
             # AI 응답을 채팅 기록에 추가
             st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
         elif "document_text" not in st.session_state:
@@ -317,13 +318,13 @@ def community_tab():
 # 메인 실행
 ###############################################################################
 def main():
-    st.title("📚 ThinHelper - 생각도우미")
+    st.title("📚 ThinkHelper - 생각도우미")
 
     st.markdown("""
     **이 앱은 파일 업로드와 AI 기반 문서 분석 기능을 제공합니다.**
     
     - **GPT 문서 분석 탭:**  
-      1. PDF/PPTX/DOCX 파일을 업로드하면 AI가 자동으로 문서를 분석합니다.  
+      1. PDF/PPTX/DOCX 파일들을 업로드하면 AI가 자동으로 문서를 분석합니다.  
       2. 문서 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
       3. AI가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
     - **커뮤니티 탭:**  
