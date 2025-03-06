@@ -43,9 +43,11 @@ load_dotenv(dotenv_path=dotenv_path)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # 환경 변수에서 Gemini API 키 가져오기
+USE_GEMINI_ALWAYS = os.getenv("USE_GEMINI_ALWAYS", "False").lower() == "true"  # Gemini API를 기본적으로 사용할지 여부
 
-if not OPENAI_API_KEY or OpenAI is None:
-    st.warning("🚨 OpenAI API 키를 불러올 수 없으므로 Google Gemini API를 사용합니다.")
+# OpenAI API를 사용할 수 없거나 USE_GEMINI_ALWAYS가 True인 경우 Gemini API 사용
+if USE_GEMINI_ALWAYS or not OPENAI_API_KEY or OpenAI is None:
+    st.warning("🚨 OpenAI API를 사용할 수 없으므로 Google Gemini API를 사용합니다.")
     use_gemini_always = True
 else:
     use_gemini_always = False
@@ -305,6 +307,7 @@ def gemini_image_demo():
     except Exception as e:
         image_info_2 = f"Image2 load error: {e}"
     try:
+        import requests
         downloaded_image = requests.get(image_url_1)
         image_info_3 = f"Image3 downloaded: {len(downloaded_image.content)} bytes"
     except Exception as e:
