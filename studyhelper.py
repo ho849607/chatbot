@@ -98,7 +98,7 @@ def ask_gemini(messages, model_name="gemini", temperature=0.7):
     """
     try:
         # Gemini 클라이언트 생성 (실제 API 키로 변경 필요)
-        gemini_client = genai.Client(api_key="GEMINI_API_KEY")
+        gemini_client = genai.Client(api_key="AIzaSyBBlesVVDFTIh5N8flhHJ7NWmPs-q5h9pg")
         # messages 리스트에서 마지막 사용자 메시지를 사용 (필요에 따라 메시지 통합 로직을 수정하세요)
         user_content = messages[-1]["content"] if messages else ""
         response = gemini_client.models.generate_content(
