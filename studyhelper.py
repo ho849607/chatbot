@@ -207,23 +207,17 @@ def gpt_document_review(text):
 # GPT/AI 채팅 및 파일 분석 탭
 ###############################################################################
 def gpt_chat_tab():
-    st.info("""
-**사용법**
-1. PDF, PPTX, DOCX 및 이미지 파일(JPEG, PNG 등)을 업로드하면 AI가 자동으로 파일을 분석합니다.
-2. 파일의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.
-3. AI가 맞춤법과 문법을 수정한 결과를 제시합니다.
-4. 아래 채팅창에서 AI와 대화할 수 있습니다.
-    """)
+    st.info("파일을 업로드하면 AI가 자동으로 파일을 분석합니다.")
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-    # 업로드 파일 타입 확장: 문서와 이미지 파일 모두 지원
+    # 문서 및 이미지 파일 모두 업로드 가능
     uploaded_files = st.file_uploader(
         "📎 파일을 업로드하세요 (PDF, PPTX, DOCX, PNG, JPG, JPEG 지원)",
         type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"],
         accept_multiple_files=True
     )
     if uploaded_files is not None and len(uploaded_files) > 0:
-        with st.spinner("📖 업로드된 파일을 분석 중..."):
+        with st.spinner("파일을 분석 중..."):
             document_text = merge_documents(uploaded_files)
             summary, questions, corrections = gpt_document_review(document_text)
             st.session_state.document_text = document_text
@@ -264,10 +258,10 @@ def gpt_chat_tab():
 def community_tab():
     st.header("🌍 커뮤니티 (파일 공유 및 토론)")
     st.info("""
-    **[커뮤니티 사용법]**
-    1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
-    2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(지원 파일: PDF, PPTX, DOCX, 이미지)을 첨부하여 게시글을 등록할 수 있습니다.
-    3. 게시글 상세보기 영역에서 댓글을 작성할 수 있으며, 댓글 작성 시 임의의 '유저_숫자'가 부여됩니다.
+**[커뮤니티 사용법]**
+1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
+2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(지원 파일: PDF, PPTX, DOCX, 이미지)을 첨부하여 게시글을 등록할 수 있습니다.
+3. 게시글 상세보기 영역에서 댓글을 작성할 수 있으며, 댓글 작성 시 임의의 '유저_숫자'가 부여됩니다.
     """)
     search_query = st.text_input("🔍 검색 (제목 또는 내용 입력)")
     if "community_posts" not in st.session_state:
@@ -308,16 +302,6 @@ def community_tab():
 ###############################################################################
 def main():
     st.title("📚 ThinkHelper - 생각도우미")
-    st.markdown("""
-    **이 앱은 파일 업로드와 AI 기반 문서 및 이미지 분석 기능을 제공합니다.**
-    
-    - **GPT 문서 분석 탭:**  
-      PDF, PPTX, DOCX 및 이미지 파일(JPEG, PNG 등)을 업로드하면 AI가 자동으로 파일을 분석합니다.  
-      파일의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
-      AI가 맞춤법과 문법을 수정한 결과를 제시합니다.
-    - **커뮤니티 탭:**  
-      게시글 등록, 검색, 댓글 기능을 통해 파일을 공유하고 토론합니다.
-    """)
     tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티"))
     if tab == "GPT 문서 분석":
         gpt_chat_tab()
