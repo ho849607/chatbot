@@ -73,7 +73,7 @@ def migrate_openai_api():
 # GPT API 호출 함수 (OpenAI 및 Gemini)
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
-    """OpenAI GPT 호출. 실패 시 Gemini API 호출."""
+    """OpenAI GPT 호출, 실패 시 Gemini API 호출."""
     if use_gemini_always:
         return ask_gemini(messages, temperature=temperature)
     try:
@@ -88,24 +88,48 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
 
 def ask_gemini(messages, temperature=0.7):
     """
-    Gemini API 호출 함수.
-    시스템 메시지와 사용자 메시지를 결합해 프롬프트를 생성하고,
-    GenerativeModel의 generate_content() 메서드를 사용하여 텍스트를 생성합니다.
+    Gemini API 호출 함수 (GenerativeModel 방식).
+    시스템 메시지와 사용자 메시지를 결합하여 프롬프트를 생성하고 generate_content()를 호출합니다.
     """
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         system_message = next((m["content"] for m in messages if m["role"] == "system"), "")
         user_message = next((m["content"] for m in messages if m["role"] == "user"), "")
         prompt = f"{system_message}\n\n사용자 질문: {user_message}"
-        model = genai.GenerativeModel('gemini-1.5-flash')  # 최신 사용 가능한 모델 (필요시 조정)
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(
             prompt,
             generation_config={"temperature": temperature}
         )
         return response.text.strip()
     except Exception as e:
-        st.error(f"🚨 Google Gemini API 호출 에러: {e}")
+        st.error(f"🚨 Gemini API (GenerativeModel 방식) 호출 에러: {e}")
         return ""
+
+###############################################################################
+# Gemini API 예제 (OpenAI 방식 호출)
+###############################################################################
+def gemini_api_example():
+    """
+    OpenAI 모듈을 이용하여 Gemini API를 호출하는 예제입니다.
+    base_url을 Gemini API 엔드포인트로 설정하여 호출합니다.
+    """
+    try:
+        example_client = OpenAI(
+            api_key=GEMINI_API_KEY,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+        response = example_client.chat.completions.create(
+            model="gemini-2.0-flash",
+            n=1,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": "Explain to me how AI works"}
+            ]
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Gemini API 예제 호출 에러: {e}"
 
 ###############################################################################
 # 문서 및 이미지 파싱 함수 (캐싱 적용)
@@ -206,12 +230,10 @@ def gpt_document_review(text):
 # GPT/AI 채팅 및 파일 분석 탭
 ###############################################################################
 def gpt_chat_tab():
-    st.info("파일을 업로드하거나 별도의 입력 없이도 GPT와 자유롭게 대화할 수 있습니다.")
-    # 파일 업로드 없이도 대화를 시작할 수 있도록 기본값 설정
-    if "document_text" not in st.session_state:
-        st.session_state.document_text = ""
+    st.info("파일을 업로드하면 AI가 자동으로 파일을 분석합니다. 파일 업로드 없이도 자유롭게 대화할 수 있습니다.")
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+    # 파일 업로드: 선택 사항
     uploaded_files = st.file_uploader(
         "📎 파일을 업로드하세요 (선택: PDF, PPTX, DOCX, PNG, JPG, JPEG 지원)",
         type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"],
@@ -225,14 +247,15 @@ def gpt_chat_tab():
             st.session_state.summary = summary
             st.session_state.questions = questions
             st.session_state.corrections = corrections
-    # 대화 인터페이스: 업로드된 파일이 있으면 파일 내용 포함, 없으면 일반 대화
-    chat_context = st.session_state.document_text if st.session_state.document_text else ""
+    # 파일 미업로드 시에도 대화가 가능하도록 기본값 유지
+    if "document_text" not in st.session_state:
+        st.session_state.document_text = ""
     st.subheader("💬 AI와 대화하기")
     user_input = st.text_input("질문을 입력하세요", key="chat_input")
     if st.button("전송"):
         if user_input.strip():
             st.session_state.chat_history.append({"role": "user", "content": user_input})
-            prompt_context = f"파일 내용: {chat_context}" if chat_context else "자유로운 대화"
+            prompt_context = f"파일 내용: {st.session_state.document_text}" if st.session_state.document_text else "자유로운 대화"
             chat_prompt = [
                 {"role": "system", "content": f"당신은 {prompt_context}를 기반으로 사용자와 대화하는 도우미입니다."},
                 {"role": "user", "content": user_input}
@@ -246,6 +269,10 @@ def gpt_chat_tab():
             st.write(f"**사용자**: {message['content']}")
         else:
             st.write(f"**AI**: {message['content']}")
+    # Gemini API 예제 버튼 추가 (OpenAI 방식)
+    if st.button("Gemini API 예제 (OpenAI 방식)"):
+        result = gemini_api_example()
+        st.write("Gemini API 예제 결과:", result)
 
 ###############################################################################
 # 커뮤니티 탭 (익명 댓글 및 협업)
