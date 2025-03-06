@@ -50,6 +50,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 USE_GEMINI_ALWAYS = os.getenv("USE_GEMINI_ALWAYS", "False").lower() == "true"
 
+# OpenAI API를 사용할 수 없거나 USE_GEMINI_ALWAYS가 True이면 Gemini API 사용
 if USE_GEMINI_ALWAYS or not OPENAI_API_KEY or OpenAI is None:
     use_gemini_always = True
 else:
@@ -87,50 +88,23 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
 
 def ask_gemini(messages, temperature=0.7):
     """
-    Gemini API 호출 (GenerativeModel 방식).
-    시스템 메시지와 사용자 메시지를 결합해 프롬프트를 생성하고 generate_content()를 호출합니다.
+    Gemini API 호출 함수.
+    시스템 메시지와 사용자 메시지를 결합해 프롬프트를 생성하고,
+    GenerativeModel의 generate_content() 메서드를 사용하여 텍스트를 생성합니다.
     """
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         system_message = next((m["content"] for m in messages if m["role"] == "system"), "")
         user_message = next((m["content"] for m in messages if m["role"] == "user"), "")
         prompt = f"{system_message}\n\n사용자 질문: {user_message}"
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')  # 최신 사용 가능한 모델 (필요시 조정)
         response = model.generate_content(
             prompt,
             generation_config={"temperature": temperature}
         )
         return response.text.strip()
     except Exception as e:
-        st.error(f"🚨 Gemini API (GenerativeModel) 호출 에러: {e}\n→ curl 방식으로 시도합니다.")
-        return ask_gemini_via_curl(prompt, temperature=temperature)
-
-def ask_gemini_via_curl(prompt, temperature=0.7):
-    """
-    Gemini API 호출 (curl 방식 - HTTP POST 요청).
-    curl 명령과 동일한 방식으로 API를 호출합니다.
-    """
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        data = {
-            "contents": [{
-                "parts": [{"text": prompt}]
-            }]
-        }
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 200:
-            result = response.json()
-            # 결과 파싱 (실제 응답 구조는 API 문서를 참고)
-            if "candidates" in result and result["candidates"]:
-                return result["candidates"][0]["output"].strip()
-            else:
-                return ""
-        else:
-            st.error(f"🚨 Gemini API (curl) 호출 에러: {response.status_code} {response.text}")
-            return ""
-    except Exception as e:
-        st.error(f"🚨 Gemini API (curl) 호출 예외: {e}")
+        st.error(f"🚨 Google Gemini API 호출 에러: {e}")
         return ""
 
 ###############################################################################
@@ -232,11 +206,14 @@ def gpt_document_review(text):
 # GPT/AI 채팅 및 파일 분석 탭
 ###############################################################################
 def gpt_chat_tab():
-    st.info("파일을 업로드하면 AI가 자동으로 파일을 분석합니다.")
+    st.info("파일을 업로드하거나 별도의 입력 없이도 GPT와 자유롭게 대화할 수 있습니다.")
+    # 파일 업로드 없이도 대화를 시작할 수 있도록 기본값 설정
+    if "document_text" not in st.session_state:
+        st.session_state.document_text = ""
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
     uploaded_files = st.file_uploader(
-        "📎 파일을 업로드하세요 (PDF, PPTX, DOCX, PNG, JPG, JPEG 지원)",
+        "📎 파일을 업로드하세요 (선택: PDF, PPTX, DOCX, PNG, JPG, JPEG 지원)",
         type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"],
         accept_multiple_files=True
     )
@@ -248,26 +225,20 @@ def gpt_chat_tab():
             st.session_state.summary = summary
             st.session_state.questions = questions
             st.session_state.corrections = corrections
-    if "document_text" in st.session_state:
-        st.subheader("📌 분석 결과")
-        st.write(st.session_state.summary)
-        st.write(st.session_state.questions)
-        st.write(st.session_state.corrections)
-    st.warning("주의: AI 모델은 실수를 할 수 있으므로 결과를 반드시 확인해주세요.")
+    # 대화 인터페이스: 업로드된 파일이 있으면 파일 내용 포함, 없으면 일반 대화
+    chat_context = st.session_state.document_text if st.session_state.document_text else ""
     st.subheader("💬 AI와 대화하기")
     user_input = st.text_input("질문을 입력하세요", key="chat_input")
     if st.button("전송"):
         if user_input.strip():
-            if "document_text" in st.session_state:
-                st.session_state.chat_history.append({"role": "user", "content": user_input})
-                chat_prompt = [
-                    {"role": "system", "content": "당신은 업로드된 파일을 기반으로 질문에 답변하는 도우미입니다. 파일 내용: " + st.session_state.document_text},
-                    {"role": "user", "content": user_input}
-                ]
-                ai_response = ask_gpt(chat_prompt)
-                st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
-            else:
-                st.error("파일을 먼저 업로드해 주세요.")
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
+            prompt_context = f"파일 내용: {chat_context}" if chat_context else "자유로운 대화"
+            chat_prompt = [
+                {"role": "system", "content": f"당신은 {prompt_context}를 기반으로 사용자와 대화하는 도우미입니다."},
+                {"role": "user", "content": user_input}
+            ]
+            ai_response = ask_gpt(chat_prompt)
+            st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
         else:
             st.error("질문을 입력해 주세요.")
     for message in st.session_state.chat_history:
@@ -284,7 +255,7 @@ def community_tab():
     st.info("""
 **커뮤니티 사용법**
 - 게시글 작성 시 제목, 내용 및 파일(지원: PDF, PPTX, DOCX, 이미지)을 첨부할 수 있습니다.
-- 게시글 검색과 익명 댓글(협업 모드) 기능을 통해 파일 및 분석 결과에 대해 토론할 수 있습니다.
+- 게시글 검색과 익명 댓글 기능을 통해 파일 및 분석 결과에 대해 토론할 수 있습니다.
     """)
     search_query = st.text_input("🔍 검색 (제목 또는 내용 입력)")
     if "community_posts" not in st.session_state:
@@ -311,7 +282,7 @@ def community_tab():
         if not search_query or search_query.lower() in post["title"].lower() or search_query.lower() in post["content"].lower():
             with st.expander(f"{idx+1}. {post['title']}"):
                 st.write(post["content"])
-                # 댓글은 익명으로 표시 (익명_랜덤숫자)
+                # 익명 댓글 작성
                 comment = st.text_input(f"💬 댓글 작성 (익명)", key=f"comment_{idx}")
                 if st.button("댓글 등록", key=f"comment_btn_{idx}"):
                     if comment.strip():
@@ -331,7 +302,7 @@ def main():
 또한, 커뮤니티 탭을 통해 파일을 공유하고 익명으로 토론할 수 있습니다.
 
 **사용법**
-- **GPT 문서 분석 탭:** 파일을 업로드하면 자동으로 분석 결과(요약, 질문, 수정 사항)를 확인할 수 있습니다.
+- **GPT 문서 분석 탭:** 파일을 업로드하면 자동으로 분석 결과(요약, 질문, 수정 사항)를 확인하거나, 파일 없이도 자유롭게 대화할 수 있습니다.
 - **커뮤니티 탭:** 게시글을 등록하고 익명 댓글을 통해 파일 및 분석 결과에 대해 토론할 수 있습니다.
     """)
     tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티"))
