@@ -18,6 +18,14 @@ import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 
+# Google Gemini API 임포트 추가
+from google import genai
+from google.genai import types
+
+import pathlib
+import PIL.Image
+import requests
+
 ###############################################################################
 # NLTK 설정 (불용어 자동 다운로드)
 ###############################################################################
@@ -81,23 +89,23 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         return ask_gemini(messages, model_name="gemini", temperature=temperature)
 
 ###############################################################################
-# Google Gemini API 호출 함수 (예시)
+# Google Gemini API 호출 함수 (실제 Gemini API 호출)
 ###############################################################################
 def ask_gemini(messages, model_name="gemini", temperature=0.7):
     """
-    Google Gemini API 호출 함수 (실제 구현은 Gemini API 문서에 따라 수정)
-    현재는 예시용 placeholder 함수입니다.
+    Google Gemini API 호출 함수  
+    Gemini API를 사용하여 AI 응답을 생성합니다.
     """
     try:
-        # 실제 Gemini API 호출 코드를 이곳에 추가합니다.
-        # 예시:
-        # response = gemini_client.chat.completions.create(
-        #     model=model_name,
-        #     messages=messages,
-        #     temperature=temperature,
-        # )
-        # return response.choices[0].message.content.strip()
-        return "Google Gemini API 응답 예시: 아직 구현되지 않은 기능입니다."
+        # Gemini 클라이언트 생성 (실제 API 키로 변경 필요)
+        gemini_client = genai.Client(api_key="GEMINI_API_KEY")
+        # messages 리스트에서 마지막 사용자 메시지를 사용 (필요에 따라 메시지 통합 로직을 수정하세요)
+        user_content = messages[-1]["content"] if messages else ""
+        response = gemini_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=user_content
+        )
+        return response.text.strip()
     except Exception as e:
         st.error(f"🚨 Google Gemini API 호출 에러: {e}")
         return ""
@@ -315,6 +323,54 @@ def community_tab():
                     st.write(c)
 
 ###############################################################################
+# Gemini 이미지 예제 (Mac 환경용)
+###############################################################################
+def gemini_image_demo():
+    """
+    Mac 환경에서 이미지 파일 2개와 URL의 이미지를 Gemini API로 전송하여,
+    'What do these images have in common?' 질문에 대한 응답을 출력하는 예제입니다.
+    실제 경로와 API 키를 수정하여 사용하세요.
+    """
+    # Mac 환경에 맞는 절대 경로로 변경하세요.
+    image_path_1 = "/Users/yourusername/path/to/your/image1.jpeg"  # 첫 번째 이미지 파일 경로
+    image_path_2 = "/Users/yourusername/path/to/your/image2.jpeg"  # 두 번째 이미지 파일 경로
+    image_url_1 = "https://goo.gle/instrument-img"                # 세 번째 이미지의 URL
+
+    try:
+        pil_image = PIL.Image.open(image_path_1)
+    except Exception as e:
+        print(f"이미지 열기 오류 ({image_path_1}): {e}")
+        return
+
+    try:
+        b64_image = types.Part.from_bytes(
+            data=pathlib.Path(image_path_2).read_bytes(),
+            mime_type="image/jpeg"
+        )
+    except Exception as e:
+        print(f"이미지 바이트 읽기 오류 ({image_path_2}): {e}")
+        return
+
+    try:
+        downloaded_image = requests.get(image_url_1)
+    except Exception as e:
+        print(f"이미지 다운로드 오류 ({image_url_1}): {e}")
+        return
+
+    # Gemini 클라이언트 생성 (실제 API 키로 변경)
+    client = genai.Client(api_key="GEMINI_API_KEY")
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-exp",
+        contents=[
+            "What do these images have in common?",
+            pil_image, 
+            b64_image, 
+            downloaded_image
+        ]
+    )
+    print(response.text)
+
+###############################################################################
 # 메인 실행
 ###############################################################################
 def main():
@@ -329,13 +385,18 @@ def main():
       3. AI가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
     - **커뮤니티 탭:**  
       게시글 등록, 검색, 댓글 기능을 통해 문서를 공유하고 토론합니다.
+    - **Gemini 이미지 예제:**  
+      추가된 Gemini 이미지 예제 코드를 통해 이미지 분석도 가능합니다.
     """)
 
-    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티"))
+    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티", "Gemini 이미지 예제"))
     if tab == "GPT 문서 분석":
         gpt_chat_tab()
-    else:
+    elif tab == "커뮤니티":
         community_tab()
+    else:
+        st.info("Gemini 이미지 예제 실행 중 (콘솔 로그를 확인하세요).")
+        gemini_image_demo()
 
 if __name__ == "__main__":
     main()
