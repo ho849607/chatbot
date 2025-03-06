@@ -18,9 +18,9 @@ import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 
-# Google Gemini API 임포트 추가
-from google import genai
-from google.genai import types
+# Google Gemini API 임포트 수정
+import google.generativeai as genai
+from google.generativeai import types
 
 import pathlib
 import PIL.Image
