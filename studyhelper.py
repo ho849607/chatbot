@@ -106,7 +106,7 @@ def ask_gemini(messages, temperature=0.7):
         return ""
 
 ###############################################################################
-# 문서 파싱 함수 (캐싱 적용)
+# 문서 및 이미지 파싱 함수 (캐싱 적용)
 ###############################################################################
 @st.cache_data(show_spinner=False)
 def parse_docx(file_bytes):
@@ -139,6 +139,15 @@ def parse_ppt(file_bytes):
     except Exception:
         return "📄 PPTX 파일 분석 오류"
 
+@st.cache_data(show_spinner=False)
+def analyze_image(file_bytes):
+    try:
+        image = PIL.Image.open(BytesIO(file_bytes))
+        width, height = image.size
+        return f"이미지 파일 분석 결과: 이미지 크기는 {width}x{height} 픽셀입니다."
+    except Exception as e:
+        return f"이미지 파일 분석 오류: {e}"
+
 def analyze_file(fileinfo):
     ext = fileinfo["ext"]
     data = fileinfo["data"]
@@ -148,8 +157,10 @@ def analyze_file(fileinfo):
         return parse_pdf(data)
     elif ext == "pptx":
         return parse_ppt(data)
+    elif ext in ["png", "jpg", "jpeg"]:
+        return analyze_image(data)
     else:
-        return "❌ 지원하지 않는 파일 형식입니다. PDF, PPTX, DOCX만 지원합니다."
+        return "❌ 지원하지 않는 파일 형식입니다. (PDF, PPTX, DOCX, PNG, JPG, JPEG 지원)"
 
 ###############################################################################
 # 여러 파일 병합 (병렬 처리 적용)
@@ -195,37 +206,33 @@ def gpt_document_review(text):
 def gpt_chat_tab():
     st.info("""
 **사용법**
-1. PDF/PPTX/DOCX 파일들을 업로드하면 AI가 자동으로 문서를 분석합니다.
-2. 문서 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.
-3. AI가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
+1. PDF, PPTX, DOCX 및 이미지 파일(JPEG, PNG 등)을 업로드하면 AI가 자동으로 파일을 분석합니다.
+2. 문서의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.
+3. AI가 맞춤법과 문법을 수정하여 개선된 결과를 제시합니다.
 4. 아래 채팅창에서 AI와 대화할 수 있습니다.
     """)
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+    # 업로드 파일 타입 확장: 문서와 이미지 파일 모두 지원
     uploaded_files = st.file_uploader(
-        "📎 문서를 업로드하세요 (PDF/PPTX/DOCX 지원)",
-        type=["pdf", "pptx", "docx"],
+        "📎 파일을 업로드하세요 (PDF, PPTX, DOCX, PNG, JPG, JPEG 지원)",
+        type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"],
         accept_multiple_files=True
     )
+    # 파일이 업로드되면 바로 분석 진행 (별도의 안내 메시지 제거)
     if uploaded_files is not None and len(uploaded_files) > 0:
-        with st.spinner("📖 업로드된 문서를 분석 중..."):
+        with st.spinner("📖 업로드된 파일을 분석 중..."):
             document_text = merge_documents(uploaded_files)
             summary, questions, corrections = gpt_document_review(document_text)
             st.session_state.document_text = document_text
             st.session_state.summary = summary
             st.session_state.questions = questions
             st.session_state.corrections = corrections
-    elif "document_text" not in st.session_state:
-        st.info("파일을 업로드하시면 문서 분석 결과가 표시됩니다.")
     if "document_text" in st.session_state:
-        st.subheader("📌 문서 요약")
+        st.subheader("📌 분석 결과")
         st.write(st.session_state.summary)
-        st.subheader("💡 고려해야 할 질문")
         st.write(st.session_state.questions)
-        st.subheader("✍️ 맞춤법 및 문장 수정")
         st.write(st.session_state.corrections)
-    else:
-        st.info("먼저 문서를 업로드하여 분석 결과를 받아주세요.")
     st.warning("주의: AI 모델은 실수를 할 수 있으므로 결과를 반드시 확인해주세요.")
     st.subheader("💬 AI와 대화하기")
     user_input = st.text_input("질문을 입력하세요", key="chat_input")
@@ -234,13 +241,13 @@ def gpt_chat_tab():
             if "document_text" in st.session_state:
                 st.session_state.chat_history.append({"role": "user", "content": user_input})
                 chat_prompt = [
-                    {"role": "system", "content": "당신은 사용자가 업로드한 문서를 기반으로 질문에 답변하는 도우미입니다. 문서 내용: " + st.session_state.document_text},
+                    {"role": "system", "content": "당신은 업로드된 파일을 기반으로 질문에 답변하는 도우미입니다. 파일 내용: " + st.session_state.document_text},
                     {"role": "user", "content": user_input}
                 ]
                 ai_response = ask_gpt(chat_prompt)
                 st.session_state.chat_history.append({"role": "assistant", "content": ai_response})
             else:
-                st.error("먼저 문서를 업로드해 주세요.")
+                st.error("파일을 먼저 업로드해 주세요.")
         else:
             st.error("질문을 입력해 주세요.")
     for message in st.session_state.chat_history:
@@ -257,7 +264,7 @@ def community_tab():
     st.info("""
     **[커뮤니티 사용법]**
     1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
-    2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(PDF/PPTX/DOCX 지원)을 첨부하여 게시글을 등록할 수 있습니다.
+    2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(지원 파일: PDF, PPTX, DOCX, 이미지)을 첨부하여 게시글을 등록할 수 있습니다.
     3. 게시글 상세보기 영역에서 댓글을 작성할 수 있으며, 댓글 작성 시 임의의 '유저_숫자'가 부여됩니다.
     """)
     search_query = st.text_input("🔍 검색 (제목 또는 내용 입력)")
@@ -266,7 +273,7 @@ def community_tab():
     st.subheader("📤 새로운 게시글 작성")
     title = st.text_input("제목")
     content = st.text_area("내용")
-    uploaded_files = st.file_uploader("📎 파일 업로드", type=["pdf", "pptx", "docx"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("📎 파일 업로드", type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"], accept_multiple_files=True)
     if st.button("✅ 게시글 등록"):
         if title.strip() and content.strip():
             files_info = []
@@ -295,28 +302,6 @@ def community_tab():
                     st.write(c)
 
 ###############################################################################
-# 이미지 업로드 탭 (Gemini 이미지 예제 대신)
-###############################################################################
-def image_upload_tab():
-    st.header("🖼️ 이미지 업로드")
-    st.info("이미지 파일(JPEG, PNG)을 업로드하면 이미지를 화면에 표시하고, 간단한 이미지 정보를 분석합니다.")
-    uploaded_image = st.file_uploader("이미지 파일을 업로드하세요", type=["png", "jpg", "jpeg"])
-    if uploaded_image is not None:
-        try:
-            image = PIL.Image.open(uploaded_image)
-            st.image(image, caption="업로드된 이미지", use_column_width=True)
-            width, height = image.size
-            info = f"이 이미지의 크기는 {width}x{height} 픽셀입니다."
-            st.write(info)
-            # Gemini API를 사용해 이미지 정보 기반 텍스트 분석 요청 (예시)
-            if st.button("이미지 분석"):
-                prompt = f"다음 이미지 정보를 기반으로 이미지를 설명해줘: {info}"
-                response = ask_gemini([{"role": "user", "content": prompt}], temperature=0.7)
-                st.write("분석 결과:", response)
-        except Exception as e:
-            st.error(f"이미지 처리 오류: {e}")
-
-###############################################################################
 # 메인 실행
 ###############################################################################
 def main():
@@ -325,21 +310,17 @@ def main():
     **이 앱은 파일 업로드와 AI 기반 문서 및 이미지 분석 기능을 제공합니다.**
     
     - **GPT 문서 분석 탭:**  
-      1. PDF/PPTX/DOCX 파일들을 업로드하면 AI가 자동으로 문서를 분석합니다.  
-      2. 문서 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
-      3. AI가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
+      PDF, PPTX, DOCX 및 이미지 파일(JPEG, PNG 등)을 업로드하면 AI가 자동으로 파일을 분석합니다.  
+      문서의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
+      AI가 맞춤법과 문법을 수정하여 개선된 결과를 제시합니다.
     - **커뮤니티 탭:**  
-      게시글 등록, 검색, 댓글 기능을 통해 문서를 공유하고 토론합니다.
-    - **이미지 업로드 탭:**  
-      이미지 파일 업로드를 통해 이미지 분석 기능을 제공합니다.
+      게시글 등록, 검색, 댓글 기능을 통해 파일을 공유하고 토론합니다.
     """)
-    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티", "이미지 업로드"))
+    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티"))
     if tab == "GPT 문서 분석":
         gpt_chat_tab()
-    elif tab == "커뮤니티":
-        community_tab()
     else:
-        image_upload_tab()
+        community_tab()
 
 if __name__ == "__main__":
     main()
