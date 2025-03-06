@@ -50,7 +50,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 USE_GEMINI_ALWAYS = os.getenv("USE_GEMINI_ALWAYS", "False").lower() == "true"
 
-# OpenAI API를 사용할 수 없거나 USE_GEMINI_ALWAYS가 True이면 Gemini API 사용
 if USE_GEMINI_ALWAYS or not OPENAI_API_KEY or OpenAI is None:
     use_gemini_always = True
 else:
@@ -88,8 +87,9 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
 
 def ask_gemini(messages, temperature=0.7):
     """
-    Gemini API 호출 함수 (GenerativeModel 방식).
-    시스템 메시지와 사용자 메시지를 결합하여 프롬프트를 생성하고 generate_content()를 호출합니다.
+    Gemini API 호출 함수.
+    시스템 메시지와 사용자 메시지를 결합해 프롬프트를 생성하고,
+    GenerativeModel의 generate_content() 메서드를 사용하여 텍스트를 생성합니다.
     """
     try:
         genai.configure(api_key=GEMINI_API_KEY)
@@ -103,33 +103,8 @@ def ask_gemini(messages, temperature=0.7):
         )
         return response.text.strip()
     except Exception as e:
-        st.error(f"🚨 Gemini API (GenerativeModel 방식) 호출 에러: {e}")
+        st.error(f"🚨 Gemini API 호출 에러: {e}")
         return ""
-
-###############################################################################
-# Gemini API 예제 (OpenAI 방식 호출)
-###############################################################################
-def gemini_api_example():
-    """
-    OpenAI 모듈을 이용하여 Gemini API를 호출하는 예제입니다.
-    base_url을 Gemini API 엔드포인트로 설정하여 호출합니다.
-    """
-    try:
-        example_client = OpenAI(
-            api_key=GEMINI_API_KEY,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-        )
-        response = example_client.chat.completions.create(
-            model="gemini-2.0-flash",
-            n=1,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Explain to me how AI works"}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Gemini API 예제 호출 에러: {e}"
 
 ###############################################################################
 # 문서 및 이미지 파싱 함수 (캐싱 적용)
@@ -230,12 +205,12 @@ def gpt_document_review(text):
 # GPT/AI 채팅 및 파일 분석 탭
 ###############################################################################
 def gpt_chat_tab():
-    st.info("파일을 업로드하면 AI가 자동으로 파일을 분석합니다. 파일 업로드 없이도 자유롭게 대화할 수 있습니다.")
+    st.info("파일을 업로드하면 AI가 자동으로 파일을 분석합니다. 파일 없이도 자유롭게 대화할 수 있습니다.")
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-    # 파일 업로드: 선택 사항
+    # 파일 업로드는 선택 사항입니다.
     uploaded_files = st.file_uploader(
-        "📎 파일을 업로드하세요 (선택: PDF, PPTX, DOCX, PNG, JPG, JPEG 지원)",
+        "📎 파일 업로드 (선택: PDF, PPTX, DOCX, PNG, JPG, JPEG 지원)",
         type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"],
         accept_multiple_files=True
     )
@@ -247,7 +222,6 @@ def gpt_chat_tab():
             st.session_state.summary = summary
             st.session_state.questions = questions
             st.session_state.corrections = corrections
-    # 파일 미업로드 시에도 대화가 가능하도록 기본값 유지
     if "document_text" not in st.session_state:
         st.session_state.document_text = ""
     st.subheader("💬 AI와 대화하기")
@@ -269,10 +243,6 @@ def gpt_chat_tab():
             st.write(f"**사용자**: {message['content']}")
         else:
             st.write(f"**AI**: {message['content']}")
-    # Gemini API 예제 버튼 추가 (OpenAI 방식)
-    if st.button("Gemini API 예제 (OpenAI 방식)"):
-        result = gemini_api_example()
-        st.write("Gemini API 예제 결과:", result)
 
 ###############################################################################
 # 커뮤니티 탭 (익명 댓글 및 협업)
@@ -309,7 +279,6 @@ def community_tab():
         if not search_query or search_query.lower() in post["title"].lower() or search_query.lower() in post["content"].lower():
             with st.expander(f"{idx+1}. {post['title']}"):
                 st.write(post["content"])
-                # 익명 댓글 작성
                 comment = st.text_input(f"💬 댓글 작성 (익명)", key=f"comment_{idx}")
                 if st.button("댓글 등록", key=f"comment_btn_{idx}"):
                     if comment.strip():
@@ -329,7 +298,7 @@ def main():
 또한, 커뮤니티 탭을 통해 파일을 공유하고 익명으로 토론할 수 있습니다.
 
 **사용법**
-- **GPT 문서 분석 탭:** 파일을 업로드하면 자동으로 분석 결과(요약, 질문, 수정 사항)를 확인하거나, 파일 없이도 자유롭게 대화할 수 있습니다.
+- **GPT 문서 분석 탭:** 파일 업로드를 통해 자동 분석 결과(요약, 질문, 수정 사항)를 확인하거나, 파일 없이 자유롭게 대화할 수 있습니다.
 - **커뮤니티 탭:** 게시글을 등록하고 익명 댓글을 통해 파일 및 분석 결과에 대해 토론할 수 있습니다.
     """)
     tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티"))
@@ -345,6 +314,6 @@ st.markdown("""
 ---
 **저작권 주의 문구**
 
-- **코드 사용**: 이 소스 코드는 저작권법에 의해 보호됩니다. 무단 복제, 배포, 수정 또는 상업적 사용은 금지됩니다. 개인적, 비상업적 용도로만 사용할 수 있으며, 사용 시 출처를 명확히 표기해야 합니다.
-- **파일 업로드**: 파일 업로드 시 저작권에 유의해 주세요. 저작권 침해 문제가 발생할 경우, 본 서비스는 책임을 지지 않습니다.
+- **코드 사용**: 이 소스 코드는 저작권법에 의해 보호됩니다. 무단 복제, 배포, 수정 또는 상업적 사용은 금지됩니다. 사용 시 출처를 명확히 표기해야 합니다.
+- **파일 업로드**: 파일 업로드 시 저작권에 유의해 주세요. 침해 문제가 발생할 경우, 본 서비스는 책임을 지지 않습니다.
 """)
