@@ -88,22 +88,26 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         return ask_gemini(messages, temperature=temperature)
 
 ###############################################################################
-# Google Gemini API 호출 함수 (수정된 방식)
+# Google Gemini API 호출 함수 (GenerativeModel 사용)
 ###############################################################################
 def ask_gemini(messages, temperature=0.7):
     """
-    Gemini API 호출 함수. 마지막 사용자 메시지를 프롬프트로 사용.
-    최신 google-generativeai에서는 Completion.create()를 사용합니다.
+    Google Gemini API 호출 함수.
+    시스템 메시지와 사용자 메시지를 결합하여 프롬프트로 사용합니다.
+    최신 google-generativeai에서는 GenerativeModel 클래스와 generate_content 메서드를 사용합니다.
     """
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        prompt = messages[-1]["content"] if messages else ""
-        response = genai.Completion.create(
-            model="gemini-2.0-flash",  # 필요에 따라 모델 이름 조정
-            prompt=prompt,
-            temperature=temperature
+        # 시스템 메시지와 사용자 메시지 추출 (없으면 빈 문자열)
+        system_message = next((m["content"] for m in messages if m["role"] == "system"), "")
+        user_message = next((m["content"] for m in messages if m["role"] == "user"), "")
+        prompt = f"{system_message}\n\n사용자 질문: {user_message}"
+        model = genai.GenerativeModel('gemini-1.5-flash')  # 사용 가능한 모델 이름 (필요에 따라 조정)
+        response = model.generate_content(
+            prompt,
+            generation_config={"temperature": temperature}
         )
-        return response.result.strip()
+        return response.text.strip()
     except Exception as e:
         st.error(f"🚨 Google Gemini API 호출 에러: {e}")
         return ""
@@ -210,7 +214,6 @@ def gpt_chat_tab():
     st.info("파일을 업로드하면 AI가 자동으로 파일을 분석합니다.")
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-    # 문서 및 이미지 파일 모두 업로드 가능
     uploaded_files = st.file_uploader(
         "📎 파일을 업로드하세요 (PDF, PPTX, DOCX, PNG, JPG, JPEG 지원)",
         type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"],
