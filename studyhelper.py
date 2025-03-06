@@ -2,13 +2,11 @@ import os
 import streamlit as st
 from io import BytesIO
 from dotenv import load_dotenv
-
-# OpenAI 모듈이 없어도 Gemini API로 대체 가능하도록 설정
+# OpenAI 모듈이 없어도 Gemini API로 대체할 수 있도록 설정
 try:
     from openai import OpenAI
 except ImportError:
     OpenAI = None
-
 from pathlib import Path
 import docx2txt
 import pdfplumber
@@ -18,34 +16,42 @@ import subprocess
 import nltk
 from nltk.corpus import stopwords
 import google.generativeai as genai
+import pathlib
+import PIL.Image
+import requests
+from concurrent.futures import ThreadPoolExecutor
 
 ###############################################################################
-# NLTK 설정 (불용어 자동 다운로드)
+# NLTK 설정 및 불용어 처리 (캐싱 적용)
 ###############################################################################
 nltk_data_dir = "/tmp/nltk_data"
 os.makedirs(nltk_data_dir, exist_ok=True)
 nltk.data.path.append(nltk_data_dir)
 
-try:
-    stopwords.words("english")
-except LookupError:
-    nltk.download("stopwords", download_dir=nltk_data_dir)
+@st.cache_data(show_spinner=False)
+def get_stopwords():
+    try:
+        sw = stopwords.words("english")
+    except LookupError:
+        nltk.download("stopwords", download_dir=nltk_data_dir)
+        sw = stopwords.words("english")
+    return set(sw)
 
-korean_stopwords = ["이", "그", "저", "것", "수", "등", "들", "및", "더"]
-english_stopwords = set(stopwords.words("english"))
-final_stopwords = english_stopwords.union(set(korean_stopwords))
+english_stopwords = get_stopwords()
+korean_stopwords = {"이", "그", "저", "것", "수", "등", "들", "및", "더"}
+final_stopwords = english_stopwords.union(korean_stopwords)
 
 ###############################################################################
-# 환경 변수 및 API 설정
+# 환경 변수 및 API 키 설정
 ###############################################################################
 dotenv_path = Path(".env")
 load_dotenv(dotenv_path=dotenv_path)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # 환경 변수에서 Gemini API 키 가져오기
-USE_GEMINI_ALWAYS = os.getenv("USE_GEMINI_ALWAYS", "False").lower() == "true"  # Gemini API를 기본적으로 사용할지 여부
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+USE_GEMINI_ALWAYS = os.getenv("USE_GEMINI_ALWAYS", "False").lower() == "true"
 
-# OpenAI API를 사용할 수 없거나 USE_GEMINI_ALWAYS가 True인 경우 Gemini API 사용
+# OpenAI API를 사용할 수 없거나 USE_GEMINI_ALWAYS가 True이면 Gemini API 사용
 if USE_GEMINI_ALWAYS or not OPENAI_API_KEY or OpenAI is None:
     use_gemini_always = True
 else:
@@ -65,10 +71,10 @@ def migrate_openai_api():
         st.stop()
 
 ###############################################################################
-# GPT API 호출 함수
+# GPT API 호출 함수 (문서 분석, 질문, 맞춤법 수정)
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
-    """OpenAI GPT 모델 호출 함수. 실패 시 Gemini API로 전환."""
+    """OpenAI GPT 모델 호출 함수. 호출 실패 시 Gemini API로 전환."""
     if use_gemini_always:
         return ask_gemini(messages, temperature=temperature)
     try:
@@ -79,36 +85,37 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         )
         return resp.choices[0].message.content.strip()
     except Exception:
-        # 오류 메시지를 표시하지 않고 바로 Gemini API로 전환
         return ask_gemini(messages, temperature=temperature)
 
 ###############################################################################
 # Google Gemini API 호출 함수 (최신 방식)
 ###############################################################################
 def ask_gemini(messages, temperature=0.7):
-    """Gemini API 호출 함수. 최신 GenerativeModel 사용."""
+    """Gemini API 호출 함수. 마지막 사용자 메시지를 프롬프트로 사용."""
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-1.5-flash')  # 최신 모델 사용
         prompt = messages[-1]["content"] if messages else ""
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(temperature=temperature)
+        response = genai.generate_text(
+            model="gemini-2.0-flash",  # 필요에 따라 모델 이름 조정
+            prompt=prompt,
+            temperature=temperature
         )
-        return response.text.strip()
+        return response.result.strip()
     except Exception as e:
         st.error(f"🚨 Google Gemini API 호출 에러: {e}")
         return ""
 
 ###############################################################################
-# 문서 분석 함수
+# 문서 파싱 함수 (캐싱 적용)
 ###############################################################################
+@st.cache_data(show_spinner=False)
 def parse_docx(file_bytes):
     try:
         return docx2txt.process(BytesIO(file_bytes))
     except Exception:
         return "📄 DOCX 파일 분석 오류"
 
+@st.cache_data(show_spinner=False)
 def parse_pdf(file_bytes):
     text_list = []
     try:
@@ -119,6 +126,7 @@ def parse_pdf(file_bytes):
     except Exception:
         return "📄 PDF 파일 분석 오류"
 
+@st.cache_data(show_spinner=False)
 def parse_ppt(file_bytes):
     text_list = []
     try:
@@ -143,18 +151,22 @@ def analyze_file(fileinfo):
     else:
         return "❌ 지원하지 않는 파일 형식입니다. PDF, PPTX, DOCX만 지원합니다."
 
+###############################################################################
+# 여러 파일 병합 (병렬 처리 적용)
+###############################################################################
 def merge_documents(file_list):
-    merged_text = ""
-    for file in file_list:
+    def process_file(file):
         file_bytes = file.getvalue()
         fileinfo = {
             "name": file.name,
             "ext": file.name.split(".")[-1].lower(),
             "data": file_bytes
         }
-        text = analyze_file(fileinfo)
-        merged_text += f"\n\n--- {file.name} ---\n\n" + text
-    return merged_text
+        return f"\n\n--- {file.name} ---\n\n" + analyze_file(fileinfo)
+    
+    with ThreadPoolExecutor() as executor:
+        results = list(executor.map(process_file, file_list))
+    return "".join(results)
 
 ###############################################################################
 # GPT 문서 분석, 질문, 맞춤법 수정 기능
@@ -283,42 +295,26 @@ def community_tab():
                     st.write(c)
 
 ###############################################################################
-# Gemini 이미지 예제 (Mac 환경용)
+# 이미지 업로드 탭 (Gemini 이미지 예제 대신)
 ###############################################################################
-def gemini_image_demo():
-    st.header("🖼️ Gemini 이미지 예제")
-    st.info("이 예제는 Mac 환경에서 이미지 파일 2개와 URL의 이미지를 Gemini API로 전송하여 'What do these images have in common?' 질문에 대한 응답을 출력합니다.")
-    image_path_1 = "/Users/yourusername/path/to/your/image1.jpeg"  # 첫 번째 이미지 파일 경로
-    image_path_2 = "/Users/yourusername/path/to/your/image2.jpeg"  # 두 번째 이미지 파일 경로
-    image_url_1 = "https://goo.gle/instrument-img"                # 세 번째 이미지의 URL
-    try:
-        import PIL.Image
-        pil_image = PIL.Image.open(image_path_1)
-        image_info_1 = f"Image1 size: {pil_image.size}"
-    except Exception as e:
-        image_info_1 = f"Image1 load error: {e}"
-    try:
-        pil_image = PIL.Image.open(image_path_2)
-        image_info_2 = f"Image2 size: {pil_image.size}"
-    except Exception as e:
-        image_info_2 = f"Image2 load error: {e}"
-    try:
-        import requests
-        downloaded_image = requests.get(image_url_1)
-        image_info_3 = f"Image3 downloaded: {len(downloaded_image.content)} bytes"
-    except Exception as e:
-        image_info_3 = f"Image3 download error: {e}"
-    prompt = f"What do these images have in common?\n{image_info_1}\n{image_info_2}\n{image_info_3}"
-    try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(temperature=0.7)
-        )
-        st.write(response.text)
-    except Exception as e:
-        st.error(f"🚨 Google Gemini API 호출 에러: {e}")
+def image_upload_tab():
+    st.header("🖼️ 이미지 업로드")
+    st.info("이미지 파일(JPEG, PNG)을 업로드하면 이미지를 화면에 표시하고, 간단한 이미지 정보를 분석합니다.")
+    uploaded_image = st.file_uploader("이미지 파일을 업로드하세요", type=["png", "jpg", "jpeg"])
+    if uploaded_image is not None:
+        try:
+            image = PIL.Image.open(uploaded_image)
+            st.image(image, caption="업로드된 이미지", use_column_width=True)
+            width, height = image.size
+            info = f"이 이미지의 크기는 {width}x{height} 픽셀입니다."
+            st.write(info)
+            # Gemini API를 사용해 이미지 정보 기반 텍스트 분석 요청 (예시)
+            if st.button("이미지 분석"):
+                prompt = f"다음 이미지 정보를 기반으로 이미지를 설명해줘: {info}"
+                response = ask_gemini([{"role": "user", "content": prompt}], temperature=0.7)
+                st.write("분석 결과:", response)
+        except Exception as e:
+            st.error(f"이미지 처리 오류: {e}")
 
 ###############################################################################
 # 메인 실행
@@ -326,7 +322,7 @@ def gemini_image_demo():
 def main():
     st.title("📚 ThinkHelper - 생각도우미")
     st.markdown("""
-    **이 앱은 파일 업로드와 AI 기반 문서 분석 기능을 제공합니다.**
+    **이 앱은 파일 업로드와 AI 기반 문서 및 이미지 분석 기능을 제공합니다.**
     
     - **GPT 문서 분석 탭:**  
       1. PDF/PPTX/DOCX 파일들을 업로드하면 AI가 자동으로 문서를 분석합니다.  
@@ -334,27 +330,24 @@ def main():
       3. AI가 맞춤법과 문법을 수정하여 개선된 문서를 제시합니다.
     - **커뮤니티 탭:**  
       게시글 등록, 검색, 댓글 기능을 통해 문서를 공유하고 토론합니다.
-    - **Gemini 이미지 예제:**  
-      추가된 Gemini 이미지 예제 코드를 통해 이미지 분석도 가능합니다.
+    - **이미지 업로드 탭:**  
+      이미지 파일 업로드를 통해 이미지 분석 기능을 제공합니다.
     """)
-    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티", "Gemini 이미지 예제"))
+    tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티", "이미지 업로드"))
     if tab == "GPT 문서 분석":
         gpt_chat_tab()
     elif tab == "커뮤니티":
         community_tab()
     else:
-        gemini_image_demo()
+        image_upload_tab()
 
 if __name__ == "__main__":
     main()
 
-###############################################################################
-# 저작권 주의 문구
-###############################################################################
 st.markdown("""
 ---
 **저작권 주의 문구**
 
 - **코드 사용**: 이 소스 코드는 저작권법에 의해 보호됩니다. 무단 복제, 배포, 수정 또는 상업적 사용은 금지됩니다. 개인적, 비상업적 용도로만 사용할 수 있으며, 사용 시 출처를 명확히 표기해야 합니다.
-- **파일 업로드**: 사용자는 파일을 업로드할 때 저작권에 유의해야 합니다. 저작권 침해 문제가 발생할 경우, 본 서비스는 책임을 지지 않습니다。
+- **파일 업로드**: 사용자는 파일을 업로드할 때 저작권에 유의해야 합니다. 저작권 침해 문제가 발생할 경우, 본 서비스는 책임을 지지 않습니다.
 """)
