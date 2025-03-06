@@ -88,14 +88,17 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
         return ask_gemini(messages, temperature=temperature)
 
 ###############################################################################
-# Google Gemini API 호출 함수 (최신 방식)
+# Google Gemini API 호출 함수 (수정된 방식)
 ###############################################################################
 def ask_gemini(messages, temperature=0.7):
-    """Gemini API 호출 함수. 마지막 사용자 메시지를 프롬프트로 사용."""
+    """
+    Gemini API 호출 함수. 마지막 사용자 메시지를 프롬프트로 사용.
+    최신 google-generativeai에서는 Completion.create()를 사용합니다.
+    """
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         prompt = messages[-1]["content"] if messages else ""
-        response = genai.generate_text(
+        response = genai.Completion.create(
             model="gemini-2.0-flash",  # 필요에 따라 모델 이름 조정
             prompt=prompt,
             temperature=temperature
@@ -144,9 +147,9 @@ def analyze_image(file_bytes):
     try:
         image = PIL.Image.open(BytesIO(file_bytes))
         width, height = image.size
-        return f"이미지 파일 분석 결과: 이미지 크기는 {width}x{height} 픽셀입니다."
+        return f"이미지 분석 결과: 이미지 크기는 {width}x{height} 픽셀입니다."
     except Exception as e:
-        return f"이미지 파일 분석 오류: {e}"
+        return f"이미지 분석 오류: {e}"
 
 def analyze_file(fileinfo):
     ext = fileinfo["ext"]
@@ -184,31 +187,31 @@ def merge_documents(file_list):
 ###############################################################################
 def gpt_document_review(text):
     summary_prompt = [
-        {"role": "system", "content": "주어진 문서를 요약하고 주요 내용을 정리하세요."},
+        {"role": "system", "content": "주어진 파일 내용을 요약하고 주요 내용을 정리하세요."},
         {"role": "user", "content": text}
     ]
     summary = ask_gpt(summary_prompt)
     question_prompt = [
-        {"role": "system", "content": "주어진 문서를 검토하고, 사용자가 수정하거나 고려해야 할 질문을 3가지 제시하세요."},
+        {"role": "system", "content": "주어진 파일 내용을 검토하고, 사용자가 수정하거나 고려해야 할 질문을 3가지 제시하세요."},
         {"role": "user", "content": text}
     ]
     questions = ask_gpt(question_prompt)
     correction_prompt = [
-        {"role": "system", "content": "이 문서에서 맞춤법과 문법 오류를 수정하고, 수정한 부분을 강조하세요."},
+        {"role": "system", "content": "이 파일에서 맞춤법과 문법 오류를 수정하고, 수정한 부분을 강조하세요."},
         {"role": "user", "content": text}
     ]
     corrections = ask_gpt(correction_prompt)
     return summary, questions, corrections
 
 ###############################################################################
-# GPT/AI 채팅 및 문서 분석 탭
+# GPT/AI 채팅 및 파일 분석 탭
 ###############################################################################
 def gpt_chat_tab():
     st.info("""
 **사용법**
 1. PDF, PPTX, DOCX 및 이미지 파일(JPEG, PNG 등)을 업로드하면 AI가 자동으로 파일을 분석합니다.
-2. 문서의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.
-3. AI가 맞춤법과 문법을 수정하여 개선된 결과를 제시합니다.
+2. 파일의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.
+3. AI가 맞춤법과 문법을 수정한 결과를 제시합니다.
 4. 아래 채팅창에서 AI와 대화할 수 있습니다.
     """)
     if "chat_history" not in st.session_state:
@@ -219,7 +222,6 @@ def gpt_chat_tab():
         type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"],
         accept_multiple_files=True
     )
-    # 파일이 업로드되면 바로 분석 진행 (별도의 안내 메시지 제거)
     if uploaded_files is not None and len(uploaded_files) > 0:
         with st.spinner("📖 업로드된 파일을 분석 중..."):
             document_text = merge_documents(uploaded_files)
@@ -260,7 +262,7 @@ def gpt_chat_tab():
 # 커뮤니티 탭
 ###############################################################################
 def community_tab():
-    st.header("🌍 커뮤니티 (문서 공유 및 토론)")
+    st.header("🌍 커뮤니티 (파일 공유 및 토론)")
     st.info("""
     **[커뮤니티 사용법]**
     1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
@@ -311,8 +313,8 @@ def main():
     
     - **GPT 문서 분석 탭:**  
       PDF, PPTX, DOCX 및 이미지 파일(JPEG, PNG 등)을 업로드하면 AI가 자동으로 파일을 분석합니다.  
-      문서의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
-      AI가 맞춤법과 문법을 수정하여 개선된 결과를 제시합니다.
+      파일의 요약, 수정할 부분, 그리고 개선을 위한 질문을 제공합니다.  
+      AI가 맞춤법과 문법을 수정한 결과를 제시합니다.
     - **커뮤니티 탭:**  
       게시글 등록, 검색, 댓글 기능을 통해 파일을 공유하고 토론합니다.
     """)
