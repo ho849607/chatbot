@@ -16,7 +16,6 @@ import subprocess
 import nltk
 from nltk.corpus import stopwords
 import google.generativeai as genai
-import pathlib
 import PIL.Image
 import requests
 from concurrent.futures import ThreadPoolExecutor
@@ -71,7 +70,7 @@ def migrate_openai_api():
         st.stop()
 
 ###############################################################################
-# GPT API 호출 함수 (문서 분석, 질문, 맞춤법 수정)
+# GPT API 호출 함수 (OpenAI 및 Gemini)
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     """OpenAI GPT 모델 호출 함수. 호출 실패 시 Gemini API로 전환."""
@@ -87,22 +86,18 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
     except Exception:
         return ask_gemini(messages, temperature=temperature)
 
-###############################################################################
-# Google Gemini API 호출 함수 (GenerativeModel 사용)
-###############################################################################
 def ask_gemini(messages, temperature=0.7):
     """
     Google Gemini API 호출 함수.
-    시스템 메시지와 사용자 메시지를 결합하여 프롬프트로 사용합니다.
-    최신 google-generativeai에서는 GenerativeModel 클래스와 generate_content 메서드를 사용합니다.
+    시스템 메시지와 사용자 메시지를 결합하여 프롬프트를 생성하고,
+    GenerativeModel의 generate_content() 메서드를 사용하여 텍스트를 생성합니다.
     """
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # 시스템 메시지와 사용자 메시지 추출 (없으면 빈 문자열)
         system_message = next((m["content"] for m in messages if m["role"] == "system"), "")
         user_message = next((m["content"] for m in messages if m["role"] == "user"), "")
         prompt = f"{system_message}\n\n사용자 질문: {user_message}"
-        model = genai.GenerativeModel('gemini-1.5-flash')  # 사용 가능한 모델 이름 (필요에 따라 조정)
+        model = genai.GenerativeModel('gemini-1.5-flash')  # 최신 사용 가능한 모델 (필요시 조정)
         response = model.generate_content(
             prompt,
             generation_config={"temperature": temperature}
@@ -304,7 +299,12 @@ def community_tab():
 # 메인 실행
 ###############################################################################
 def main():
-    st.title("📚 ThinkHelper - 생각도우미")
+    st.title("📚 Thinkhelper")
+    # 앱 설명 및 사용법 (중복 없이 간결하게 표시)
+    st.markdown("""
+**Thinkhelper**는 AI 기반으로 파일(문서 및 이미지)을 자동 분석하여 요약, 수정 제안, 개선 사항을 제공합니다.
+또한, 커뮤니티 탭을 통해 파일을 공유하고 토론할 수 있습니다.
+    """)
     tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티"))
     if tab == "GPT 문서 분석":
         gpt_chat_tab()
