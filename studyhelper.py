@@ -47,7 +47,6 @@ USE_GEMINI_ALWAYS = os.getenv("USE_GEMINI_ALWAYS", "False").lower() == "true"  #
 
 # OpenAI API를 사용할 수 없거나 USE_GEMINI_ALWAYS가 True인 경우 Gemini API 사용
 if USE_GEMINI_ALWAYS or not OPENAI_API_KEY or OpenAI is None:
-    st.warning("🚨 OpenAI API를 사용할 수 없으므로 Google Gemini API를 사용합니다.")
     use_gemini_always = True
 else:
     use_gemini_always = False
@@ -79,11 +78,8 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
             temperature=temperature,
         )
         return resp.choices[0].message.content.strip()
-    except Exception as e:
-        if "429" in str(e):
-            st.error("🚨 OpenAI API 쿼터를 초과했습니다. 계정의 결제 정보와 플랜을 확인하세요.")
-        else:
-            st.error(f"🚨 OpenAI API 호출 에러: {e}")
+    except Exception:
+        # 오류 메시지를 표시하지 않고 바로 Gemini API로 전환
         return ask_gemini(messages, temperature=temperature)
 
 ###############################################################################
