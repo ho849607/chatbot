@@ -50,7 +50,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 USE_GEMINI_ALWAYS = os.getenv("USE_GEMINI_ALWAYS", "False").lower() == "true"
 
-# OpenAI API를 사용할 수 없거나 USE_GEMINI_ALWAYS가 True이면 Gemini API 사용
 if USE_GEMINI_ALWAYS or not OPENAI_API_KEY or OpenAI is None:
     use_gemini_always = True
 else:
@@ -73,7 +72,7 @@ def migrate_openai_api():
 # GPT API 호출 함수 (OpenAI 및 Gemini)
 ###############################################################################
 def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
-    """OpenAI GPT 모델 호출 함수. 호출 실패 시 Gemini API로 전환."""
+    """OpenAI GPT 호출. 실패 시 Gemini API 호출."""
     if use_gemini_always:
         return ask_gemini(messages, temperature=temperature)
     try:
@@ -88,23 +87,50 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
 
 def ask_gemini(messages, temperature=0.7):
     """
-    Google Gemini API 호출 함수.
-    시스템 메시지와 사용자 메시지를 결합하여 프롬프트를 생성하고,
-    GenerativeModel의 generate_content() 메서드를 사용하여 텍스트를 생성합니다.
+    Gemini API 호출 (GenerativeModel 방식).
+    시스템 메시지와 사용자 메시지를 결합해 프롬프트를 생성하고 generate_content()를 호출합니다.
     """
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         system_message = next((m["content"] for m in messages if m["role"] == "system"), "")
         user_message = next((m["content"] for m in messages if m["role"] == "user"), "")
         prompt = f"{system_message}\n\n사용자 질문: {user_message}"
-        model = genai.GenerativeModel('gemini-1.5-flash')  # 최신 사용 가능한 모델 (필요시 조정)
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(
             prompt,
             generation_config={"temperature": temperature}
         )
         return response.text.strip()
     except Exception as e:
-        st.error(f"🚨 Google Gemini API 호출 에러: {e}")
+        st.error(f"🚨 Gemini API (GenerativeModel) 호출 에러: {e}\n→ curl 방식으로 시도합니다.")
+        return ask_gemini_via_curl(prompt, temperature=temperature)
+
+def ask_gemini_via_curl(prompt, temperature=0.7):
+    """
+    Gemini API 호출 (curl 방식 - HTTP POST 요청).
+    curl 명령과 동일한 방식으로 API를 호출합니다.
+    """
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        data = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }]
+        }
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            result = response.json()
+            # 결과 파싱 (실제 응답 구조는 API 문서를 참고)
+            if "candidates" in result and result["candidates"]:
+                return result["candidates"][0]["output"].strip()
+            else:
+                return ""
+        else:
+            st.error(f"🚨 Gemini API (curl) 호출 에러: {response.status_code} {response.text}")
+            return ""
+    except Exception as e:
+        st.error(f"🚨 Gemini API (curl) 호출 예외: {e}")
         return ""
 
 ###############################################################################
@@ -251,15 +277,14 @@ def gpt_chat_tab():
             st.write(f"**AI**: {message['content']}")
 
 ###############################################################################
-# 커뮤니티 탭
+# 커뮤니티 탭 (익명 댓글 및 협업)
 ###############################################################################
 def community_tab():
     st.header("🌍 커뮤니티 (파일 공유 및 토론)")
     st.info("""
-**[커뮤니티 사용법]**
-1. 상단의 검색창에서 제목 또는 내용을 입력하여 기존 게시글을 검색할 수 있습니다.
-2. '새로운 게시글 작성' 영역에서 제목, 내용 및 파일(지원 파일: PDF, PPTX, DOCX, 이미지)을 첨부하여 게시글을 등록할 수 있습니다.
-3. 게시글 상세보기 영역에서 댓글을 작성할 수 있으며, 댓글 작성 시 임의의 '유저_숫자'가 부여됩니다.
+**커뮤니티 사용법**
+- 게시글 작성 시 제목, 내용 및 파일(지원: PDF, PPTX, DOCX, 이미지)을 첨부할 수 있습니다.
+- 게시글 검색과 익명 댓글(협업 모드) 기능을 통해 파일 및 분석 결과에 대해 토론할 수 있습니다.
     """)
     search_query = st.text_input("🔍 검색 (제목 또는 내용 입력)")
     if "community_posts" not in st.session_state:
@@ -286,24 +311,28 @@ def community_tab():
         if not search_query or search_query.lower() in post["title"].lower() or search_query.lower() in post["content"].lower():
             with st.expander(f"{idx+1}. {post['title']}"):
                 st.write(post["content"])
-                comment = st.text_input(f"💬 댓글 작성 (작성자: 유저_{random.randint(100,999)})", key=f"comment_{idx}")
+                # 댓글은 익명으로 표시 (익명_랜덤숫자)
+                comment = st.text_input(f"💬 댓글 작성 (익명)", key=f"comment_{idx}")
                 if st.button("댓글 등록", key=f"comment_btn_{idx}"):
                     if comment.strip():
-                        post["comments"].append(f"📝 유저_{random.randint(100,999)}: {comment}")
+                        st.session_state.community_posts[idx]["comments"].append(f"익명_{random.randint(100,999)}: {comment}")
                     else:
                         st.error("댓글 내용을 입력해 주세요.")
                 for c in post["comments"]:
                     st.write(c)
 
 ###############################################################################
-# 메인 실행
+# 메인 실행 및 사용법 안내
 ###############################################################################
 def main():
     st.title("📚 Thinkhelper")
-    # 앱 설명 및 사용법 (중복 없이 간결하게 표시)
     st.markdown("""
 **Thinkhelper**는 AI 기반으로 파일(문서 및 이미지)을 자동 분석하여 요약, 수정 제안, 개선 사항을 제공합니다.
-또한, 커뮤니티 탭을 통해 파일을 공유하고 토론할 수 있습니다.
+또한, 커뮤니티 탭을 통해 파일을 공유하고 익명으로 토론할 수 있습니다.
+
+**사용법**
+- **GPT 문서 분석 탭:** 파일을 업로드하면 자동으로 분석 결과(요약, 질문, 수정 사항)를 확인할 수 있습니다.
+- **커뮤니티 탭:** 게시글을 등록하고 익명 댓글을 통해 파일 및 분석 결과에 대해 토론할 수 있습니다.
     """)
     tab = st.sidebar.radio("🔎 메뉴 선택", ("GPT 문서 분석", "커뮤니티"))
     if tab == "GPT 문서 분석":
@@ -319,5 +348,5 @@ st.markdown("""
 **저작권 주의 문구**
 
 - **코드 사용**: 이 소스 코드는 저작권법에 의해 보호됩니다. 무단 복제, 배포, 수정 또는 상업적 사용은 금지됩니다. 개인적, 비상업적 용도로만 사용할 수 있으며, 사용 시 출처를 명확히 표기해야 합니다.
-- **파일 업로드**: 사용자는 파일을 업로드할 때 저작권에 유의해야 합니다. 저작권 침해 문제가 발생할 경우, 본 서비스는 책임을 지지 않습니다.
+- **파일 업로드**: 파일 업로드 시 저작권에 유의해 주세요. 저작권 침해 문제가 발생할 경우, 본 서비스는 책임을 지지 않습니다.
 """)
