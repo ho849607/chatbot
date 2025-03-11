@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 import datetime
 from PIL import Image
 import io
-from google.generativeai import types  # 수정된 부분: 올바른 모듈 경로
+from google.generativeai import types  # 올바른 모듈 경로 사용
 from docx import Document
 import tempfile  # 임시 파일 처리를 위한 모듈
 
@@ -83,8 +83,9 @@ else:
 def ask_gemini_cached(prompt, temperature=0.2):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
+        # prompt를 키워드 인자가 아니라 위치 인자로 전달
         response = model.generate_content(
-            prompt=prompt,
+            prompt,
             generation_config={"temperature": temperature}
         )
         return response.text.strip()
@@ -113,8 +114,8 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.2):
 
 def _ask_gemini(messages, temperature=0.2):
     try:
-        system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
-        user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
+        system_msg = next((m["content"] for m in messages if m["role"]=="system"), "")
+        user_msg = next((m["content"] for m in messages if m["role"]=="user"), "")
         prompt = f"{system_msg}\n\n사용자 질문: {user_msg}"
         return ask_gemini_cached(prompt, temperature=temperature)
     except Exception as e:
