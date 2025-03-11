@@ -25,6 +25,8 @@ import datetime
 from PIL import Image
 import io
 from google.genai import types
+from docx import Document
+import tempfile  # 임시 파일 처리를 위한 모듈
 
 ###############################################################################
 # 환경 변수 로드 및 설정
@@ -32,6 +34,8 @@ from google.genai import types
 dotenv_path = ".env"
 load_dotenv(dotenv_path=dotenv_path)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+USE_GEMINI_ALWAYS = os.getenv("USE_GEMINI_ALWAYS", "False").lower() == "true"
 
 # Gemini API 설정
 genai.configure(api_key=GEMINI_API_KEY)
@@ -57,27 +61,23 @@ korean_stopwords = {"이", "그", "저", "것", "수", "등", "들", "및", "더
 final_stopwords = english_stopwords.union(korean_stopwords)
 
 ###############################################################################
-# 오버헤드 감소: 최대한 빠른 처리 위해 병렬 제한
+# 병렬 제한 (성능 개선)
 ###############################################################################
-MAX_WORKERS = 2  # 병렬 스레드 수 제한
+MAX_WORKERS = 2
 
 ###############################################################################
-# OpenAI와 Gemini API 키 설정
+# OpenAI & Gemini 설정
 ###############################################################################
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-USE_GEMINI_ALWAYS = os.getenv("USE_GEMINI_ALWAYS", "False").lower() == "true"
-
-# OpenAI 클라이언트
 if not OPENAI_API_KEY or OpenAI is None or USE_GEMINI_ALWAYS:
-    # Gemini 강제 사용
     use_gemini_always = True
-    client = None
+    openai_client = None
 else:
     use_gemini_always = False
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+    # base_url은 예시. 필요 시 "https://generativelanguage.googleapis.com/v1beta/openai/"
+    openai_client = OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.openai.com/v1")
 
 ###############################################################################
-# 캐싱을 통해 Gemini 응답 속도 개선
+# Gemini (캐싱 예시)
 ###############################################################################
 @st.cache_data(show_spinner=False)
 def ask_gemini_cached(prompt, temperature=0.2):
@@ -95,33 +95,34 @@ def ask_gemini_cached(prompt, temperature=0.2):
 # OpenAI 호출 실패 시 Gemini로 fallback
 ###############################################################################
 @st.cache_data(show_spinner=False)
-def ask_gpt(messages, model_name="gpt-4", temperature=0.7):
-    if use_gemini_always or client is None:
-        # Gemini 사용 (fallback)
-        return _ask_gemini(messages, temperature)
+def ask_gpt(messages, model_name="gpt-4", temperature=0.2):
+    """OpenAI GPT 호출. 실패 시 Gemini API로 fallback."""
+    if use_gemini_always or not openai_client:
+        return _ask_gemini(messages, temperature=temperature)
     else:
-        # OpenAI 시도
         try:
-            resp = client.chat.completions.create(
+            resp = openai_client.chat.completions.create(
                 model=model_name,
                 messages=messages,
                 temperature=temperature,
             )
             return resp.choices[0].message.content.strip()
-        except Exception:
-            return _ask_gemini(messages, temperature)
+        except Exception as e:
+            st.warning(f"OpenAI 호출 실패: {e}, Gemini로 전환합니다.")
+            return _ask_gemini(messages, temperature=temperature)
 
-def _ask_gemini(messages, temperature=0.7):
+def _ask_gemini(messages, temperature=0.2):
     try:
         system_msg = next((m["content"] for m in messages if m["role"]=="system"), "")
         user_msg = next((m["content"] for m in messages if m["role"]=="user"), "")
         prompt = f"{system_msg}\n\n사용자 질문: {user_msg}"
         return ask_gemini_cached(prompt, temperature=temperature)
     except Exception as e:
-        return f"Gemini API fallback 오류: {e}"
+        st.error(f"Gemini API fallback 오류: {e}")
+        return "AI 호출 중 오류 발생"
 
 ###############################################################################
-# 이미지 리사이즈 후 Gemini에 전달 (빠른 속도)
+# 이미지 리사이즈 후 분석 (간단 예시)
 ###############################################################################
 @st.cache_data(show_spinner=False)
 def analyze_image_resized(file_bytes, max_size=(800, 800)):
@@ -142,14 +143,22 @@ def analyze_image_resized(file_bytes, max_size=(800, 800)):
         return f"이미지 분석 오류: {e}"
 
 ###############################################################################
-# 기본 파일 파싱 (문서)
+# 문서 파싱 (PDF, DOCX, PPT)
 ###############################################################################
 @st.cache_data(show_spinner=False)
 def parse_docx(file_bytes):
     try:
-        return docx2txt.process(file_bytes)
-    except Exception:
-        return "📄 DOCX 파일 분석 오류"
+        # BytesIO 객체로 전달된 내용을 임시 DOCX 파일로 저장
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+            # file_bytes가 BytesIO 객체인 경우 getvalue() 사용, 아니라면 그대로 사용
+            content = file_bytes.getvalue() if hasattr(file_bytes, "getvalue") else file_bytes
+            tmp.write(content)
+            tmp_path = tmp.name
+        text = docx2txt.process(tmp_path)
+        os.remove(tmp_path)  # 임시 파일 삭제
+        return text
+    except Exception as e:
+        return f"📄 DOCX 파일 분석 오류: {e}"
 
 @st.cache_data(show_spinner=False)
 def parse_pdf(file_bytes):
@@ -176,7 +185,6 @@ def parse_ppt(file_bytes):
     except Exception:
         return "📄 PPTX 파일 분석 오류"
 
-###############################################################################
 def analyze_file(file_info):
     ext = file_info["ext"]
     data = file_info["data"]
@@ -187,7 +195,6 @@ def analyze_file(file_info):
     elif ext == "pptx":
         return parse_ppt(BytesIO(data))
     elif ext in ["png", "jpg", "jpeg"]:
-        # 리사이즈 후 분석
         return analyze_image_resized(data)
     else:
         return "❌ 지원하지 않는 파일 형식입니다."
@@ -242,26 +249,48 @@ def manage_gemini_cache():
         st.error(f"Gemini 캐시 관리 에러: {e}")
 
 ###############################################################################
-# Streamlit UI
+# 커뮤니티 문서 구조 예시 (버전관리)
+# 예시:
+# st.session_state.community_posts = [
+#     {
+#       "id": 1,
+#       "title": "법률문서 초안",
+#       "content": "여기에 문서 본문이 들어감...",
+#       "owner": "익명_101",
+#       "history": [
+#           {
+#             "user": "익명_235",
+#             "time": "2025-03-11 14:23",
+#             "content": "수정된 문서 내용..."
+#           }
+#       ]
+#     },
+#     ...
+# ]
 ###############################################################################
+
 def main():
     st.title("📚 Thinkhelper")
     st.markdown("""
 **Thinkhelper**는 AI 기반으로 파일(문서/이미지)을 빠르게 분석하고, 자유롭게 대화할 수 있도록 설계되었습니다.
 
 - 파일을 업로드하면 분석 결과(요약, 수정 제안 등)를 볼 수 있습니다.
-- 파일 없이도 자유로운 AI 대화 가능합니다.
-- 커뮤니티 탭에서는 익명 게시글 및 댓글을 통해 협업할 수 있습니다.
+- 파일 없이도 자유로운 AI 대화가 가능합니다.
+- 추가로, 새 문서를 AI로 자동 생성할 수 있는 기능을 제공합니다.
+- **커뮤니티 탭에서는 익명 게시글을 올리고, 다른 사용자가 문서를 수정**(버전관리)할 수 있습니다.
 """)
 
-    # 사이드바에서 Gemini 캐시 관리 버튼
     if st.sidebar.button("Gemini Cache 관리"):
         manage_gemini_cache()
 
-    tab = st.sidebar.radio("🔎 메뉴 선택", ("파일 분석 & GPT 채팅", "커뮤니티"))
+    tab = st.sidebar.radio("🔎 메뉴 선택", ("파일 분석 & GPT 채팅", "AI 문서 생성", "커뮤니티"))
+
+    if "community_posts" not in st.session_state:
+        # 초기 예시
+        st.session_state.community_posts = []
 
     if tab == "파일 분석 & GPT 채팅":
-        st.info("파일(문서, 이미지)을 업로드하면 분석하고, 업로드 없이도 AI와 대화 가능합니다.")
+        st.info("파일(문서, 이미지)을 업로드하면 분석. 업로드 없이도 AI와 대화.")
         uploaded_files = st.file_uploader(
             "📎 파일 업로드 (PDF, PPTX, DOCX, 이미지)",
             type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"],
@@ -284,22 +313,60 @@ def main():
         if st.button("전송"):
             if user_input:
                 prompt_context = st.session_state.analysis_result
-                prompt = f"파일 내용: {prompt_context}\n질문: {user_input}" if prompt_context else user_input
-
-                # Gemini 호출 (캐싱)
-                response = ask_gemini_cached(prompt, temperature=0.2)
+                messages = [
+                    {"role": "system", "content": f"파일 내용: {prompt_context}"},
+                    {"role": "user", "content": user_input}
+                ]
+                response = ask_gpt(messages, model_name="gpt-4", temperature=0.2)
                 st.write("AI:", response)
 
+    elif tab == "AI 문서 생성":
+        st.header("📝 새 문서 생성 (AI 자동작성)")
+        document_topic = st.text_input("새 문서 주제 입력", placeholder="예: 인공지능의 미래 전망")
+        doc_type = st.selectbox("문서 형식 선택", ["DOCX (워드 문서)", "텍스트 파일 (.txt)"])
+
+        if st.button("새 문서 생성"):
+            if document_topic.strip():
+                with st.spinner("문서 생성 중..."):
+                    messages = [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": f"Write a detailed and professional article about: {document_topic}"}
+                    ]
+                    generated_doc = ask_gpt(messages, model_name="gpt-4", temperature=0.2)
+
+                edited_text = st.text_area("✏️ 문서 편집", generated_doc, height=400)
+
+                if st.button("📥 문서 다운로드"):
+                    if doc_type.startswith("DOCX"):
+                        doc = Document()
+                        doc.add_paragraph(edited_text)
+                        buffer = BytesIO()
+                        doc.save(buffer)
+                        buffer.seek(0)
+                        st.download_button(
+                            label="DOCX 다운로드",
+                            data=buffer,
+                            file_name=f"{document_topic}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+                    else:
+                        st.download_button(
+                            label="TXT 다운로드",
+                            data=edited_text,
+                            file_name=f"{document_topic}.txt",
+                            mime="text/plain"
+                        )
+            else:
+                st.warning("문서 주제를 입력해주세요!")
+
     else:
-        # 커뮤니티 탭
-        st.info("익명으로 게시글 및 댓글을 작성하고 협업할 수 있습니다.")
-        if "community_posts" not in st.session_state:
-            st.session_state.community_posts = []
+        # 커뮤니티 탭 (버전 관리: 누가 수정했는지 기록)
+        st.info("익명으로 게시글(문서) 등록 후, 다른 사용자가 문서를 수정하면 버전 관리 이력을 남깁니다.")
 
         search_query = st.text_input("🔍 검색 (제목 또는 내용)")
-        st.subheader("새 게시글 작성")
+        st.subheader("새 게시글(문서) 작성")
         title = st.text_input("제목")
-        content = st.text_area("내용")
+        content = st.text_area("본문")
         files_uploaded = st.file_uploader("📎 파일 업로드 (선택)", type=["pdf", "pptx", "docx", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
         if st.button("게시글 등록"):
@@ -310,25 +377,75 @@ def main():
                         ext = uf.name.split(".")[-1].lower()
                         file_bytes = uf.getvalue()
                         post_files.append({"name": uf.name, "ext": ext, "data": file_bytes})
-                new_post = {"title": title, "content": content, "files": post_files, "comments": []}
+                new_id = len(st.session_state.community_posts) + 1
+                new_post = {
+                    "id": new_id,
+                    "title": title,
+                    "content": content,
+                    "owner": f"익명_{random.randint(100,999)}",
+                    "files": post_files,
+                    "history": []  # 수정 이력
+                }
                 st.session_state.community_posts.append(new_post)
-                st.success("게시글이 등록되었습니다.")
+                st.success("게시글(문서)이 등록되었습니다.")
             else:
                 st.error("제목과 내용을 모두 입력해야 합니다.")
 
-        st.subheader("📜 게시글 목록")
+        st.subheader("📜 게시글(문서) 목록")
         for idx, post in enumerate(st.session_state.community_posts):
+            # 검색
             if (not search_query) or (search_query.lower() in post["title"].lower() or search_query.lower() in post["content"].lower()):
                 with st.expander(f"{idx+1}. {post['title']}"):
                     st.write(post["content"])
-                    comment = st.text_input("댓글 작성 (익명)", key=f"comment_{idx}")
-                    if st.button("댓글 등록", key=f"comment_btn_{idx}"):
+
+                    # 파일 목록 표시
+                    if post.get("files"):
+                        st.markdown("**첨부파일 목록**")
+                        for f_idx, f_info in enumerate(post["files"]):
+                            st.write(f"- {f_info['name']}")
+
+                    # 수정하기 버튼
+                    edit_key = f"edit_{post['id']}"
+                    if st.button("수정하기", key=f"edit_btn_{post['id']}"):
+                        st.session_state[edit_key] = True
+
+                    if edit_key in st.session_state and st.session_state[edit_key]:
+                        st.markdown("### 문서 수정 모드")
+                        new_text = st.text_area("수정할 내용", post["content"], key=f"ta_{post['id']}")
+                        if st.button("수정사항 저장", key=f"save_{post['id']}"):
+                            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                            history_record = {
+                                "user": f"익명_{random.randint(100,999)}",
+                                "time": current_time,
+                                "content": new_text
+                            }
+                            post["history"].append(history_record)
+                            post["content"] = new_text
+                            st.session_state[edit_key] = False
+                            st.success("수정사항이 반영되었습니다.")
+
+                    # 수정 이력 보기
+                    if len(post["history"]) > 0:
+                        with st.expander("수정 이력 보기"):
+                            for h_idx, hist in enumerate(post["history"]):
+                                st.markdown(f"**[수정 {h_idx+1}]** {hist['user']} @ {hist['time']}")
+                                st.write(hist["content"])
+                                st.markdown("---")
+
+                    # 댓글 기능
+                    comment = st.text_input("댓글 작성 (익명)", key=f"comment_{post['id']}")
+                    if st.button("댓글 등록", key=f"comment_btn_{post['id']}"):
                         if comment.strip():
-                            st.session_state.community_posts[idx]["comments"].append(f"익명_{random.randint(100,999)}: {comment}")
+                            if "comments" not in post:
+                                post["comments"] = []
+                            post["comments"].append(f"익명_{random.randint(100,999)}: {comment}")
                         else:
                             st.error("댓글 내용을 입력해주세요.")
-                    for c in post["comments"]:
-                        st.write(c)
+
+                    if "comments" in post and len(post["comments"]) > 0:
+                        st.markdown("**댓글 목록**")
+                        for c in post["comments"]:
+                            st.write(c)
 
 if __name__ == "__main__":
     main()
