@@ -73,7 +73,7 @@ if not OPENAI_API_KEY or OpenAI is None or USE_GEMINI_ALWAYS:
     openai_client = None
 else:
     use_gemini_always = False
-    # base_url은 예시. 필요 시 "https://generativelanguage.googleapis.com/v1beta/openai/"
+    # base_url은 예시입니다. 필요 시 올바른 URL로 변경하세요.
     openai_client = OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.openai.com/v1")
 
 ###############################################################################
@@ -83,7 +83,7 @@ else:
 def ask_gemini_cached(prompt, temperature=0.2):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
-        # prompt를 키워드 인자가 아니라 위치 인자로 전달
+        # prompt를 키워드 인자가 아니라 위치 인자로 전달합니다.
         response = model.generate_content(
             prompt,
             generation_config={"temperature": temperature}
@@ -114,8 +114,8 @@ def ask_gpt(messages, model_name="gpt-4", temperature=0.2):
 
 def _ask_gemini(messages, temperature=0.2):
     try:
-        system_msg = next((m["content"] for m in messages if m["role"]=="system"), "")
-        user_msg = next((m["content"] for m in messages if m["role"]=="user"), "")
+        system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
+        user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
         prompt = f"{system_msg}\n\n사용자 질문: {user_msg}"
         return ask_gemini_cached(prompt, temperature=temperature)
     except Exception as e:
@@ -149,7 +149,7 @@ def analyze_image_resized(file_bytes, max_size=(800, 800)):
 @st.cache_data(show_spinner=False)
 def parse_docx(file_bytes):
     try:
-        # BytesIO 객체로 전달된 내용을 임시 DOCX 파일로 저장
+        # BytesIO 객체로 전달된 내용을 임시 DOCX 파일로 저장합니다.
         with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
             content = file_bytes.getvalue() if hasattr(file_bytes, "getvalue") else file_bytes
             tmp.write(content)
@@ -248,24 +248,24 @@ def manage_gemini_cache():
 
 ###############################################################################
 # 커뮤니티 문서 구조 예시 (버전관리)
+###############################################################################
 # 예시:
 # st.session_state.community_posts = [
 #     {
-#       "id": 1,
-#       "title": "법률문서 초안",
-#       "content": "여기에 문서 본문이 들어감...",
-#       "owner": "익명_101",
-#       "history": [
-#           {
-#             "user": "익명_235",
-#             "time": "2025-03-11 14:23",
-#             "content": "수정된 문서 내용..."
-#           }
-#       ]
+#         "id": 1,
+#         "title": "법률문서 초안",
+#         "content": "여기에 문서 본문이 들어감...",
+#         "owner": "익명_101",
+#         "history": [
+#             {
+#                 "user": "익명_235",
+#                 "time": "2025-03-11 14:23",
+#                 "content": "수정된 문서 내용..."
+#             }
+#         ]
 #     },
 #     ...
 # ]
-###############################################################################
 
 def main():
     st.title("📚 Thinkhelper")
@@ -284,7 +284,6 @@ def main():
     tab = st.sidebar.radio("🔎 메뉴 선택", ("파일 분석 & GPT 채팅", "AI 문서 생성", "커뮤니티"))
 
     if "community_posts" not in st.session_state:
-        # 초기 예시
         st.session_state.community_posts = []
 
     if tab == "파일 분석 & GPT 채팅":
@@ -337,7 +336,6 @@ def main():
             result = ask_gpt(messages, model_name="gpt-4", temperature=0.2)
             st.session_state.api_result = result
 
-        # on_change 콜백을 통해 사용자가 내용을 작성할 때마다 update_document 함수가 호출됨
         st.text_area("✏️ 문서 작성", key="doc_text", height=400, on_change=update_document)
         st.subheader("AI 도움 결과")
         st.write(st.session_state.get("api_result", ""))
@@ -398,21 +396,63 @@ def main():
 
         st.subheader("📜 게시글(문서) 목록")
         for idx, post in enumerate(st.session_state.community_posts):
-            # 검색
             if (not search_query) or (search_query.lower() in post["title"].lower() or search_query.lower() in post["content"].lower()):
                 with st.expander(f"{idx+1}. {post['title']}"):
                     st.write(post["content"])
 
-                    # 파일 목록 표시
                     if post.get("files"):
                         st.markdown("**첨부파일 목록**")
                         for f_idx, f_info in enumerate(post["files"]):
                             st.write(f"- {f_info['name']}")
 
-                    # 수정하기 버튼
                     edit_key = f"edit_{post['id']}"
                     if st.button("수정하기", key=f"edit_btn_{post['id']}"):
                         st.session_state[edit_key] = True
 
                     if edit_key in st.session_state and st.session_state[edit_key]:
-                        st.mar
+                        st.markdown("### 문서 수정 모드")
+                        new_text = st.text_area("수정할 내용", post["content"], key=f"ta_{post['id']}")
+                        if st.button("수정사항 저장", key=f"save_{post['id']}"):
+                            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                            history_record = {
+                                "user": f"익명_{random.randint(100,999)}",
+                                "time": current_time,
+                                "content": new_text
+                            }
+                            post["history"].append(history_record)
+                            post["content"] = new_text
+                            st.session_state[edit_key] = False
+                            st.success("수정사항이 반영되었습니다.")
+
+                    if len(post["history"]) > 0:
+                        with st.expander("수정 이력 보기"):
+                            for h_idx, hist in enumerate(post["history"]):
+                                st.markdown(f"**[수정 {h_idx+1}]** {hist['user']} @ {hist['time']}")
+                                st.write(hist["content"])
+                                st.markdown("---")
+
+                    comment = st.text_input("댓글 작성 (익명)", key=f"comment_{post['id']}")
+                    if st.button("댓글 등록", key=f"comment_btn_{post['id']}"):
+                        if comment.strip():
+                            if "comments" not in post:
+                                post["comments"] = []
+                            post["comments"].append(f"익명_{random.randint(100,999)}: {comment}")
+                        else:
+                            st.error("댓글 내용을 입력해주세요.")
+
+                    if "comments" in post and len(post["comments"]) > 0:
+                        st.markdown("**댓글 목록**")
+                        for c in post["comments"]:
+                            st.write(c)
+
+if __name__ == "__main__":
+    main()
+
+st.markdown("""
+---
+**저작권 주의 문구**
+
+- 본 코드는 저작권법에 의해 보호됩니다. 무단 복제, 배포, 수정 또는 상업적 사용은 금지됩니다.
+- 사용 시 출처를 명확히 표기해야 하며, 개인적/비상업적 용도로만 이용 가능합니다.
+- 파일 업로드 시 발생하는 저작권 침해 문제에 대해서는 책임지지 않습니다.
+""")
