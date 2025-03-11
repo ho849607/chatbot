@@ -319,43 +319,50 @@ def main():
                 st.write("AI:", response)
 
     elif tab == "AI 문서 생성":
-        st.header("📝 새 문서 생성 (AI 자동작성)")
-        document_topic = st.text_input("새 문서 주제 입력", placeholder="예: 인공지능의 미래 전망")
+        st.header("📝 새 문서 생성 (실시간 AI 지원)")
+        st.markdown("문서를 작성하는 동시에 AI가 실시간으로 도움을 드립니다.")
+        # 문서 작성 및 API 결과 저장을 위한 초기값 설정
+        if "doc_text" not in st.session_state:
+            st.session_state.doc_text = ""
+        if "api_result" not in st.session_state:
+            st.session_state.api_result = ""
+
+        def update_document():
+            user_input = st.session_state.doc_text
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_input}
+            ]
+            # 사용자가 작성한 문서를 기반으로 API 호출
+            result = ask_gpt(messages, model_name="gpt-4", temperature=0.2)
+            st.session_state.api_result = result
+
+        # on_change 콜백을 통해 사용자가 내용을 작성할 때마다 update_document 함수가 호출됨
+        st.text_area("✏️ 문서 작성", key="doc_text", height=400, on_change=update_document)
+        st.subheader("AI 도움 결과")
+        st.write(st.session_state.get("api_result", ""))
+
         doc_type = st.selectbox("문서 형식 선택", ["DOCX (워드 문서)", "텍스트 파일 (.txt)"])
-
-        if st.button("새 문서 생성"):
-            if document_topic.strip():
-                with st.spinner("문서 생성 중..."):
-                    messages = [
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": f"Write a detailed and professional article about: {document_topic}"}
-                    ]
-                    generated_doc = ask_gpt(messages, model_name="gpt-4", temperature=0.2)
-
-                edited_text = st.text_area("✏️ 문서 편집", generated_doc, height=400)
-
-                if st.button("📥 문서 다운로드"):
-                    if doc_type.startswith("DOCX"):
-                        doc = Document()
-                        doc.add_paragraph(edited_text)
-                        buffer = BytesIO()
-                        doc.save(buffer)
-                        buffer.seek(0)
-                        st.download_button(
-                            label="DOCX 다운로드",
-                            data=buffer,
-                            file_name=f"{document_topic}.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        )
-                    else:
-                        st.download_button(
-                            label="TXT 다운로드",
-                            data=edited_text,
-                            file_name=f"{document_topic}.txt",
-                            mime="text/plain"
-                        )
+        if st.button("📥 문서 다운로드"):
+            if doc_type.startswith("DOCX"):
+                doc = Document()
+                doc.add_paragraph(st.session_state.doc_text)
+                buffer = BytesIO()
+                doc.save(buffer)
+                buffer.seek(0)
+                st.download_button(
+                    label="DOCX 다운로드",
+                    data=buffer,
+                    file_name="generated_document.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
             else:
-                st.warning("문서 주제를 입력해주세요!")
+                st.download_button(
+                    label="TXT 다운로드",
+                    data=st.session_state.doc_text,
+                    file_name="generated_document.txt",
+                    mime="text/plain"
+                )
 
     else:
         # 커뮤니티 탭 (버전 관리: 누가 수정했는지 기록)
@@ -408,51 +415,4 @@ def main():
                         st.session_state[edit_key] = True
 
                     if edit_key in st.session_state and st.session_state[edit_key]:
-                        st.markdown("### 문서 수정 모드")
-                        new_text = st.text_area("수정할 내용", post["content"], key=f"ta_{post['id']}")
-                        if st.button("수정사항 저장", key=f"save_{post['id']}"):
-                            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                            history_record = {
-                                "user": f"익명_{random.randint(100,999)}",
-                                "time": current_time,
-                                "content": new_text
-                            }
-                            post["history"].append(history_record)
-                            post["content"] = new_text
-                            st.session_state[edit_key] = False
-                            st.success("수정사항이 반영되었습니다.")
-
-                    # 수정 이력 보기
-                    if len(post["history"]) > 0:
-                        with st.expander("수정 이력 보기"):
-                            for h_idx, hist in enumerate(post["history"]):
-                                st.markdown(f"**[수정 {h_idx+1}]** {hist['user']} @ {hist['time']}")
-                                st.write(hist["content"])
-                                st.markdown("---")
-
-                    # 댓글 기능
-                    comment = st.text_input("댓글 작성 (익명)", key=f"comment_{post['id']}")
-                    if st.button("댓글 등록", key=f"comment_btn_{post['id']}"):
-                        if comment.strip():
-                            if "comments" not in post:
-                                post["comments"] = []
-                            post["comments"].append(f"익명_{random.randint(100,999)}: {comment}")
-                        else:
-                            st.error("댓글 내용을 입력해주세요.")
-
-                    if "comments" in post and len(post["comments"]) > 0:
-                        st.markdown("**댓글 목록**")
-                        for c in post["comments"]:
-                            st.write(c)
-
-if __name__ == "__main__":
-    main()
-
-st.markdown("""
----
-**저작권 주의 문구**
-
-- 본 코드는 저작권법에 의해 보호됩니다. 무단 복제, 배포, 수정 또는 상업적 사용은 금지됩니다.
-- 사용 시 출처를 명확히 표기해야 하며, 개인적/비상업적 용도로만 이용 가능합니다.
-- 파일 업로드 시 발생하는 저작권 침해 문제에 대해서는 책임지지 않습니다.
-""")
+                        st.mar
