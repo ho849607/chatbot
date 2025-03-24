@@ -4,7 +4,7 @@ import requests
 import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 
-# 페이지 설정은 최상단에 배치
+# 페이지 설정은 최상단에 배치합니다.
 st.set_page_config(page_title="ThinkHelper 법령 검색", layout="wide")
 
 # 환경변수 로드
@@ -74,7 +74,8 @@ def call_gemini_api(prompt):
             generated_text = response_data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "응답 내용 없음")
             return generated_text
         else:
-            return f"Gemini API 호출 실패: 상태 코드 {response.status_code}"
+            # 실패 시 응답 본문도 같이 반환합니다.
+            return f"Gemini API 호출 실패: 상태 코드 {response.status_code} / 응답: {response.text}"
     except Exception as e:
         return f"Gemini API 호출 중 오류: {e}"
 
