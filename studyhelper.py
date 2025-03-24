@@ -5,62 +5,78 @@ from dotenv import load_dotenv
 import requests
 import xml.etree.ElementTree as ET
 
-# 페이지 설정은 최상단에 배치합니다.
+# 페이지 설정은 최상단에 배치
 st.set_page_config(page_title="ThinkHelper 법령 검색", layout="wide")
 
 # 환경변수 로드
 load_dotenv()
 LAWGOKR_API_KEY = os.getenv("LAWGOKR_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 if not LAWGOKR_API_KEY:
     st.error("LAWGOKR_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
+if not GEMINI_API_KEY:
+    st.error("GEMINI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
 
 ###############################################################################
 # 국가법령정보센터 API 함수
 ###############################################################################
 @st.cache_data(show_spinner=False)
 def law_search(keyword):
+    """법령 검색 API 호출 함수"""
     url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAWGOKR_API_KEY}&target=law&type=XML&query={keyword}"
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise Exception(f"API 호출 실패: 상태 코드 {response.status_code}")
     try:
-        response = requests.get(url)
-        if response.status_code != 200:
-            st.error(f"API 호출 실패: {response.status_code}")
-            st.write(response.text)
-            return []
-        # 응답 내용을 로그로 확인하고 싶다면 아래 주석을 해제할 수 있습니다.
-        # st.write(response.text)
-        
-        try:
-            tree = ET.fromstring(response.content)
-        except ET.ParseError as pe:
-            st.error(f"XML 파싱 오류: {pe}")
-            st.write("응답 내용:", response.text)
-            return []
-        
-        results = []
-        for item in tree.findall("law"):
-            law_name = item.findtext("법령명한글")
-            law_id = item.findtext("법령ID")
-            results.append({"name": law_name, "id": law_id})
-        return results
-    except Exception as e:
-        st.error(f"법령 검색 중 오류 발생: {e}")
-        return []
+        tree = ET.fromstring(response.content)
+    except ET.ParseError as pe:
+        raise Exception(f"XML 파싱 오류: {pe}")
+    results = []
+    for item in tree.findall("law"):
+        law_name = item.findtext("법령명한글")
+        law_id = item.findtext("법령ID")
+        results.append({"name": law_name, "id": law_id})
+    return results
 
 @st.cache_data(show_spinner=False)
 def law_view(law_id):
+    """법령 본문 조회 API 호출 함수"""
     url = f"https://www.law.go.kr/DRF/lawView.do?OC={LAWGOKR_API_KEY}&target=law&type=XML&ID={law_id}"
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise Exception(f"API 호출 실패: 상태 코드 {response.status_code}")
     try:
-        response = requests.get(url)
-        if response.status_code != 200:
-            return f"API 호출 실패: {response.status_code}"
-        try:
-            tree = ET.fromstring(response.content)
-        except ET.ParseError as pe:
-            return f"XML 파싱 오류: {pe}\n응답 내용: {response.text}"
-        content = tree.findtext("조문내용") or "본문 없음"
-        return content
+        tree = ET.fromstring(response.content)
+    except ET.ParseError as pe:
+        raise Exception(f"XML 파싱 오류: {pe}")
+    content = tree.findtext("조문내용") or "본문 없음"
+    return content
+
+###############################################################################
+# Google Gemini API 함수 (가상 구현)
+###############################################################################
+def call_gemini_api(prompt):
+    """Gemini API를 호출하여 대체 정보 생성"""
+    # 실제 Gemini API 엔드포인트는 문서를 확인해야 하지만, 여기서는 가상 URL 사용
+    url = "https://api.gemini.google.com/v1/generate"
+    headers = {
+        "Authorization": f"Bearer {GEMINI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "prompt": prompt,
+        "max_tokens": 500
+    }
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            # 응답 형식은 API 문서에 따라 달라질 수 있음
+            return response.json().get("generated_text", "응답 내용 없음")
+        else:
+            return f"Gemini API 호출 실패: 상태 코드 {response.status_code}"
     except Exception as e:
-        return f"법령 본문 조회 중 오류: {e}"
+        return f"Gemini API 호출 중 오류: {e}"
 
 ###############################################################################
 # Streamlit UI
@@ -86,17 +102,31 @@ def main():
                 st.warning("검색어를 입력해주세요.")
             else:
                 with st.spinner("검색 중..."):
-                    results = law_search(keyword)
-                if results:
-                    st.success(f"총 {len(results)}개의 검색 결과가 있습니다.")
-                    for idx, r in enumerate(results):
-                        with st.expander(f"{idx+1}. {r['name']}"):
-                            if st.button("📄 본문 보기", key=f"view_{r['id']}"):
-                                with st.spinner("본문 불러오는 중..."):
-                                    content = law_view(r["id"])
-                                st.text_area("법령 본문", content, height=300)
-                else:
-                    st.info("검색 결과가 없습니다.")
+                    try:
+                        results = law_search(keyword)
+                        if results:
+                            st.success(f"총 {len(results)}개의 검색 결과가 있습니다.")
+                            for idx, r in enumerate(results):
+                                with st.expander(f"{idx+1}. {r['name']}"):
+                                    if st.button("📄 본문 보기", key=f"view_{r['id']}"):
+                                        with st.spinner("본문 불러오는 중..."):
+                                            try:
+                                                content = law_view(r["id"])
+                                                st.text_area("법령 본문", content, height=300)
+                                            except Exception as e:
+                                                st.error(f"법령 본문 조회 중 오류: {e}")
+                                                prompt = f"다음 법령의 본문에 대한 요약을 제공해 주세요: {r['name']}"
+                                                gemini_response = call_gemini_api(prompt)
+                                                st.write("**주의:** 아래 정보는 AI에 의해 생성되었으며, 최신 또는 정확한 정보가 아닐 수 있습니다. 공식 법령 정보는 국가법령정보센터를 참조하세요.")
+                                                st.write("**대체 정보 (Gemini API):**", gemini_response)
+                        else:
+                            st.info("검색 결과가 없습니다.")
+                    except Exception as e:
+                        st.error(f"법령 검색 중 오류 발생: {e}")
+                        prompt = f"다음 법령에 대한 간략한 설명을 제공해 주세요: {keyword}"
+                        gemini_response = call_gemini_api(prompt)
+                        st.write("**주의:** 아래 정보는 AI에 의해 생성되었으며, 최신 또는 정확한 정보가 아닐 수 있습니다. 공식 법령 정보는 국가법령정보센터를 참조하세요.")
+                        st.write("**대체 정보 (Gemini API):**", gemini_response)
 
 if __name__ == "__main__":
     main()
