@@ -1,9 +1,8 @@
 import os
 import streamlit as st
-from io import BytesIO
-from dotenv import load_dotenv
 import requests
 import xml.etree.ElementTree as ET
+from dotenv import load_dotenv
 
 # 페이지 설정은 최상단에 배치
 st.set_page_config(page_title="ThinkHelper 법령 검색", layout="wide")
@@ -54,25 +53,26 @@ def law_view(law_id):
     return content
 
 ###############################################################################
-# Google Gemini API 함수 (가상 구현)
+# Google Gemini API 함수
 ###############################################################################
 def call_gemini_api(prompt):
-    """Gemini API를 호출하여 대체 정보 생성"""
-    # 실제 Gemini API 엔드포인트는 문서를 확인해야 하지만, 여기서는 가상 URL 사용
-    url = "https://api.gemini.google.com/v1/generate"
+    """Gemini API를 호출하여 응답 생성"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {
-        "Authorization": f"Bearer {GEMINI_API_KEY}",
         "Content-Type": "application/json"
     }
     data = {
-        "prompt": prompt,
-        "max_tokens": 500
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }]
     }
     try:
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
-            # 응답 형식은 API 문서에 따라 달라질 수 있음
-            return response.json().get("generated_text", "응답 내용 없음")
+            response_data = response.json()
+            # 응답 구조에 따라 텍스트 추출 (실제 응답에 맞게 조정 필요)
+            generated_text = response_data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "응답 내용 없음")
+            return generated_text
         else:
             return f"Gemini API 호출 실패: 상태 코드 {response.status_code}"
     except Exception as e:
@@ -115,7 +115,7 @@ def main():
                                                 st.text_area("법령 본문", content, height=300)
                                             except Exception as e:
                                                 st.error(f"법령 본문 조회 중 오류: {e}")
-                                                prompt = f"다음 법령의 본문에 대한 요약을 제공해 주세요: {r['name']}"
+                                                prompt = f"다음 법령에 대한 간략한 설명을 제공해 주세요: {r['name']}"
                                                 gemini_response = call_gemini_api(prompt)
                                                 st.write("**주의:** 아래 정보는 AI에 의해 생성되었으며, 최신 또는 정확한 정보가 아닐 수 있습니다. 공식 법령 정보는 국가법령정보센터를 참조하세요.")
                                                 st.write("**대체 정보 (Gemini API):**", gemini_response)
