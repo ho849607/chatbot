@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import requests
 import xml.etree.ElementTree as ET
 
-# 페이지 설정을 최우선으로 실행
+# 페이지 설정은 최상단에 배치합니다.
 st.set_page_config(page_title="ThinkHelper 법령 검색", layout="wide")
 
 # 환경변수 로드
@@ -24,8 +24,18 @@ def law_search(keyword):
         response = requests.get(url)
         if response.status_code != 200:
             st.error(f"API 호출 실패: {response.status_code}")
+            st.write(response.text)
             return []
-        tree = ET.fromstring(response.content)
+        # 응답 내용을 로그로 확인하고 싶다면 아래 주석을 해제할 수 있습니다.
+        # st.write(response.text)
+        
+        try:
+            tree = ET.fromstring(response.content)
+        except ET.ParseError as pe:
+            st.error(f"XML 파싱 오류: {pe}")
+            st.write("응답 내용:", response.text)
+            return []
+        
         results = []
         for item in tree.findall("law"):
             law_name = item.findtext("법령명한글")
@@ -43,7 +53,10 @@ def law_view(law_id):
         response = requests.get(url)
         if response.status_code != 200:
             return f"API 호출 실패: {response.status_code}"
-        tree = ET.fromstring(response.content)
+        try:
+            tree = ET.fromstring(response.content)
+        except ET.ParseError as pe:
+            return f"XML 파싱 오류: {pe}\n응답 내용: {response.text}"
         content = tree.findtext("조문내용") or "본문 없음"
         return content
     except Exception as e:
@@ -61,20 +74,19 @@ def main():
     - 법령명을 키워드로 검색해보세요 (예: 개인정보보호법, 산업안전보건법 등)
     - API를 통해 최신 법령 본문을 바로 확인할 수 있습니다.
     """)
-
+    
     tab = st.sidebar.radio("🧭 메뉴", ["법령 검색"])
-
+    
     if tab == "법령 검색":
         st.header("🔍 법령 검색")
         keyword = st.text_input("법령 키워드 입력", placeholder="예: 근로기준법, 민법")
-
+        
         if st.button("검색"):
             if not keyword.strip():
                 st.warning("검색어를 입력해주세요.")
             else:
                 with st.spinner("검색 중..."):
                     results = law_search(keyword)
-
                 if results:
                     st.success(f"총 {len(results)}개의 검색 결과가 있습니다.")
                     for idx, r in enumerate(results):
