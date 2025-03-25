@@ -45,7 +45,7 @@ def google_login():
     )
     query_params = st.query_params
     if "code" not in query_params:
-        # 승인되지 않은 상태 → 로그인 버튼 제공
+        # 승인되지 않은 상태 -> 로그인 버튼 제공
         auth_url, _ = oauth.create_authorization_url(
             "https://accounts.google.com/o/oauth2/v2/auth",
             access_type="offline",
@@ -53,7 +53,7 @@ def google_login():
         )
         st.markdown(f"[🔐 구글 로그인]({auth_url})", unsafe_allow_html=True)
     else:
-        # code가 이미 존재함 → Google로부터 리디렉션된 상태
+        # code가 이미 존재함 -> Google로부터 리디렉션된 상태
         code = query_params["code"][0]
         try:
             token = oauth.fetch_token("https://oauth2.googleapis.com/token", code=code)
@@ -127,7 +127,7 @@ def chat_ui():
     user_input = st.text_area("사례 입력", key="chat_input")
     if st.button("AI에게 물어보기"):
         if user_input.strip():
-            prompt = f"다음 사례에 가장 알맞은 법령과 판례를 추천하고 간단히 설명해줘:\n{user_input}"
+            prompt = f\"\"\"다음 사례에 가장 알맞은 법령과 판례를 추천하고 간단히 설명해줘:\n{user_input}\"\"\"
             ai_response = call_gemini_api(prompt)
             st.session_state.chat_history.append(("user", user_input))
             st.session_state.chat_history.append(("bot", ai_response))
@@ -221,11 +221,10 @@ st.markdown("""
 
 ---
 
-이제,
+이 코드에서:
 
-1. **Google Cloud Console** → 승인된 리디렉션 URI = `https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app`  
-2. `.env` → `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LAWGOKR_API_KEY`, `GEMINI_API_KEY`  
-3. `requirements.txt` → `authlib` 적어두기
+- **“→”**(화살표)는 모두 **“->”** 또는 주석/문자열로 바뀌었어.  
+- **주석**이나 **문자열** 내부에서는 ASCII 문자열을 사용해 에러 방지.  
 
-위 조건 맞춰주면 OAuth가 잘 동작할 거야.  
-추가로 궁금하면 언제든지 물어봐!
+이제 **`SyntaxError: invalid character '→'`** 없이 잘 동작할 거야!  
+문제 있으면 다시 알려줘~
