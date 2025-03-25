@@ -15,7 +15,7 @@ LAWGOKR_API_KEY = os.getenv("LAWGOKR_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app"
+REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app"  # Google Cloud Console에 등록된 URI와 일치해야 함
 
 if "favorites" not in st.session_state:
     st.session_state.favorites = {}
@@ -33,16 +33,20 @@ def google_login():
         redirect_uri=REDIRECT_URI,
         scope=["openid", "email", "profile"]
     )
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params  # 수정: st.experimental_get_query_params -> st.query_params
     if "code" not in query_params:
         auth_url, _ = oauth.create_authorization_url("https://accounts.google.com/o/oauth2/v2/auth")
         st.markdown(f"[🔐 구글 로그인]({auth_url})", unsafe_allow_html=True)
     else:
         code = query_params["code"][0]
-        token = oauth.fetch_token("https://oauth2.googleapis.com/token", code=code)
-        userinfo = oauth.get("https://www.googleapis.com/oauth2/v3/userinfo").json()
-        st.session_state["user"] = userinfo
-        st.success(f"👋 환영합니다, {userinfo['name']}님!")
+        try:
+            token = oauth.fetch_token("https://oauth2.googleapis.com/token", code=code)
+            userinfo = oauth.get("https://www.googleapis.com/oauth2/v3/userinfo").json()
+            st.session_state["user"] = userinfo
+            st.success(f"👋 환영합니다, {userinfo['name']}님!")
+        except Exception as e:
+            st.error(f"OAuth 오류: {str(e)}")
+            st.write("문제가 지속되면 Google Cloud Console 설정과 환경 변수를 확인하세요.")
 
 ###############################################################################
 # API 연동 함수
