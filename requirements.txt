@@ -34,3 +34,4 @@ streamlit-drawable-canvas
 # Gemini API 및 이미지 요청을 위한 라이브러리
 google-generativeai
 requests
+authlib
