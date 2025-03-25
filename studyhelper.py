@@ -7,6 +7,9 @@ from authlib.integrations.requests_client import OAuth2Session
 import datetime
 
 # 페이지 설정
+# ※ Google Cloud Console에서 승인된 리디렉션 URI가
+#    https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app
+#    라고 되어 있다면 아래에도 슬래시 없이 동일하게 맞춰주세요.
 st.set_page_config(page_title="ThinkHelper - 법률 도우미", layout="centered")
 
 # 환경변수 로드
@@ -15,7 +18,8 @@ LAWGOKR_API_KEY = os.getenv("LAWGOKR_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app"  # Google Cloud Console에 등록된 URI와 일치해야 함
+# 구글 콘솔에서 등록한 리디렉션 URI와 정확히 일치해야 함.
+REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app"
 
 if "favorites" not in st.session_state:
     st.session_state.favorites = {}
@@ -27,32 +31,47 @@ if "chat_history" not in st.session_state:
 # 로그인
 ###############################################################################
 def google_login():
+    """
+    Google OAuth 로그인 함수
+    - 리디렉션 URI는 구글 콘솔에 등록된 것과 동일해야 함
+    - 한 번 사용한 code는 재사용 불가능
+    - authlib 모듈이 필요함
+    """
     oauth = OAuth2Session(
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET,
         redirect_uri=REDIRECT_URI,
         scope=["openid", "email", "profile"]
     )
-    query_params = st.query_params  # 수정: st.experimental_get_query_params -> st.query_params
+    query_params = st.query_params
     if "code" not in query_params:
-        auth_url, _ = oauth.create_authorization_url("https://accounts.google.com/o/oauth2/v2/auth")
+        # 승인되지 않은 상태 → 로그인 버튼 제공
+        # 아래 access_type, prompt는 선택 사항
+        auth_url, _ = oauth.create_authorization_url(
+            "https://accounts.google.com/o/oauth2/v2/auth",
+            access_type="offline",
+            prompt="consent"
+        )
         st.markdown(f"[🔐 구글 로그인]({auth_url})", unsafe_allow_html=True)
     else:
+        # code가 이미 존재함 → Google로부터 리디렉션된 상태
         code = query_params["code"][0]
         try:
             token = oauth.fetch_token("https://oauth2.googleapis.com/token", code=code)
             userinfo = oauth.get("https://www.googleapis.com/oauth2/v3/userinfo").json()
             st.session_state["user"] = userinfo
-            st.success(f"👋 환영합니다, {userinfo['name']}님!")
+            st.success(f"👋 환영합니다, {userinfo.get('name','사용자')} 님!")
         except Exception as e:
-            st.error(f"OAuth 오류: {str(e)}")
-            st.write("문제가 지속되면 Google Cloud Console 설정과 환경 변수를 확인하세요.")
+            st.error(f"OAuth 오류: {e}")
+            st.write("Google Cloud Console 설정 및 .env 파일을 다시 확인해주세요.")
 
 ###############################################################################
 # API 연동 함수
 ###############################################################################
 @st.cache_data(show_spinner=False)
 def law_search(keyword):
+    if not keyword.strip():
+        return []
     url = f"https://www.law.go.kr/DRF/lawSearch.do?OC={LAWGOKR_API_KEY}&target=law&type=XML&query={keyword}"
     response = requests.get(url)
     tree = ET.fromstring(response.content)
@@ -67,6 +86,8 @@ def law_view(law_id):
 
 @st.cache_data(show_spinner=False)
 def precedent_search(keyword):
+    if not keyword.strip():
+        return []
     url = f"https://www.law.go.kr/DRF/caseSearch.do?OC={LAWGOKR_API_KEY}&target=case&type=XML&query={keyword}"
     response = requests.get(url)
     tree = ET.fromstring(response.content)
@@ -83,6 +104,8 @@ def precedent_view(case_id):
 # Gemini API
 ###############################################################################
 def call_gemini_api(prompt):
+    if not GEMINI_API_KEY:
+        return "Gemini API Key가 설정되지 않았습니다."
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     data = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -100,7 +123,7 @@ def chat_ui():
     st.subheader("💬 내 사례를 설명해 보세요")
     user_input = st.text_area("사례 입력", key="chat_input")
     if st.button("AI에게 물어보기"):
-        if user_input:
+        if user_input.strip():
             prompt = f"다음 사례에 가장 알맞은 법령과 판례를 추천하고 간단히 설명해줘:\n{user_input}"
             ai_response = call_gemini_api(prompt)
             st.session_state.chat_history.append(("user", user_input))
@@ -129,10 +152,17 @@ def favorites_ui():
 ###############################################################################
 def main():
     st.title("📚 ThinkHelper")
+
+    # 1) 먼저 로그인 시도
     google_login()
 
-    if "user" in st.session_state:
-        st.sidebar.success(f"{st.session_state['user']['email']} 님 환영합니다")
+    # 2) 로그인 안 된 경우 이용 제한
+    if "user" not in st.session_state:
+        st.warning("로그인 후 이용할 수 있습니다. 아래 버튼을 클릭하세요.")
+        return
+
+    # 여기부터는 로그인이 된 경우만 접근 가능
+    st.sidebar.success(f"{st.session_state['user']['email']} 님 환영합니다")
 
     tab = st.sidebar.radio("📂 메뉴", ["AI 사례 추천", "법령 검색", "판례 검색", "즐겨찾기"])
 
@@ -142,7 +172,10 @@ def main():
     elif tab == "법령 검색":
         keyword = st.text_input("법령 키워드 입력")
         if st.button("검색 (법령)"):
-            for r in law_search(keyword):
+            results = law_search(keyword)
+            if not results:
+                st.info("검색 결과가 없습니다.")
+            for r in results:
                 with st.expander(r["name"]):
                     if st.button("📄 보기", key=f"law_{r['id']}"):
                         content = law_view(r["id"])
@@ -156,7 +189,10 @@ def main():
     elif tab == "판례 검색":
         keyword = st.text_input("판례 키워드 입력")
         if st.button("검색 (판례)"):
-            for r in precedent_search(keyword):
+            results = precedent_search(keyword)
+            if not results:
+                st.info("검색 결과가 없습니다.")
+            for r in results:
                 with st.expander(r["name"]):
                     if st.button("📄 보기", key=f"case_{r['id']}"):
                         content = precedent_view(r["id"])
