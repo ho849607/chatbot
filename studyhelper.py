@@ -46,7 +46,6 @@ def google_login():
     query_params = st.query_params
     if "code" not in query_params:
         # 승인되지 않은 상태 → 로그인 버튼 제공
-        # 아래 access_type, prompt는 선택 사항
         auth_url, _ = oauth.create_authorization_url(
             "https://accounts.google.com/o/oauth2/v2/auth",
             access_type="offline",
@@ -61,6 +60,10 @@ def google_login():
             userinfo = oauth.get("https://www.googleapis.com/oauth2/v3/userinfo").json()
             st.session_state["user"] = userinfo
             st.success(f"👋 환영합니다, {userinfo.get('name','사용자')} 님!")
+
+            # 인증 후에는 code 파라미터 제거 (중복 사용 방지)
+            st.experimental_set_query_params()
+
         except Exception as e:
             st.error(f"OAuth 오류: {e}")
             st.write("Google Cloud Console 설정 및 .env 파일을 다시 확인해주세요.")
@@ -215,3 +218,14 @@ st.markdown("""
 - 본 서비스는 [국가법령정보센터](https://www.law.go.kr)의 API를 이용합니다.  
 - 법령 및 판례 정보는 공공데이터로 제공되며, 최종 판단은 법률 전문가와 상의하세요.
 """)
+
+---
+
+이제,
+
+1. **Google Cloud Console** → 승인된 리디렉션 URI = `https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app`  
+2. `.env` → `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LAWGOKR_API_KEY`, `GEMINI_API_KEY`  
+3. `requirements.txt` → `authlib` 적어두기
+
+위 조건 맞춰주면 OAuth가 잘 동작할 거야.  
+추가로 궁금하면 언제든지 물어봐!
