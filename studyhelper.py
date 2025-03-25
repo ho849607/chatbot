@@ -7,9 +7,6 @@ from authlib.integrations.requests_client import OAuth2Session
 import datetime
 
 # 페이지 설정
-# ※ Google Cloud Console에서 승인된 리디렉션 URI가
-#    https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app
-#    라고 되어 있다면 아래도 완전히 동일하게 맞춰주세요 (슬래시 포함 여부 등).
 st.set_page_config(page_title="ThinkHelper - 법률 도우미", layout="centered")
 
 # 환경변수 로드
@@ -22,7 +19,7 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 # 구글 콘솔에서 등록한 리디렉션 URI와 정확히 일치해야 함.
 REDIRECT_URI = "https://chatbot-3vyflfufldvf7d882bmvgm.streamlit.app"
 
-# 초기 세션 상태
+# 세션초기화
 if "favorites" not in st.session_state:
     st.session_state.favorites = {}
 if "chat_history" not in st.session_state:
@@ -33,10 +30,9 @@ if "chat_history" not in st.session_state:
 ###############################################################################
 def google_login():
     """
-    Google OAuth 로그인 함수
-    - 리디렉션 URI는 구글 콘솔에 등록된 것과 동일해야 함
-    - 한 번 사용한 code는 재사용 불가능
-    - authlib 모듈 설치 필요: pip install authlib
+    Google OAuth 로그인
+    - REDIRECT_URI는 구글 콘솔 설정과 동일해야 함
+    - 인증 성공 후 code 파라미터 제거 & rerun
     """
     oauth = OAuth2Session(
         client_id=GOOGLE_CLIENT_ID,
@@ -45,7 +41,7 @@ def google_login():
         scope=["openid", "email", "profile"]
     )
 
-    query_params = st.query_params  # st.experimental_get_query_params() -> st.query_params (최신)
+    query_params = st.query_params
     if "code" not in query_params:
         # 승인되지 않은 상태 -> 로그인 버튼
         auth_url, _ = oauth.create_authorization_url(
@@ -58,16 +54,14 @@ def google_login():
         # code가 이미 존재 -> Google 리디렉션 상태
         code = query_params["code"][0]
         try:
-            token = oauth.fetch_token(
-                "https://oauth2.googleapis.com/token",
-                code=code
-            )
+            token = oauth.fetch_token("https://oauth2.googleapis.com/token", code=code)
             userinfo = oauth.get("https://www.googleapis.com/oauth2/v3/userinfo").json()
             st.session_state["user"] = userinfo
             st.success(f"👋 환영합니다, {userinfo.get('name','사용자')} 님!")
-
-            # 인증 후에는 code 파라미터 제거 (중복 사용 방지)
+            
+            # **중복 사용 방지**: code 파라미터 제거 후 rerun
             st.experimental_set_query_params()
+            st.experimental_rerun()
 
         except Exception as e:
             st.error(f"OAuth 오류: {e}")
@@ -164,9 +158,8 @@ def chat_ui():
     user_input = st.text_area("사례 입력", key="chat_input")
     if st.button("AI에게 물어보기"):
         if user_input.strip():
-            # 삼중 따옴표 / 이스케이프 주의!
             prompt = (
-                f"다음 사례에 가장 알맞은 법령과 판례를 추천하고 간단히 설명해줘:\n"
+                "다음 사례에 가장 알맞은 법령과 판례를 추천하고 간단히 설명해줘:\n"
                 f"{user_input}"
             )
             ai_response = call_gemini_api(prompt)
@@ -193,7 +186,7 @@ def favorites_ui():
             st.text_area("내용", f['content'], height=100)
 
 ###############################################################################
-# 6. 메인 함수
+# 6. 메인
 ###############################################################################
 def main():
     st.title("📚 ThinkHelper")
@@ -213,7 +206,6 @@ def main():
 
     if tab == "AI 사례 추천":
         chat_ui()
-
     elif tab == "법령 검색":
         keyword = st.text_input("법령 키워드 입력")
         if st.button("검색 (법령)"):
@@ -261,3 +253,11 @@ st.markdown("""
 - 법령 및 판례 정보는 공공데이터로 제공되며, 최종 판단은 법률 전문가와 상의하세요.
 """)
 
+---
+
+### 주요 변경점
+
+1. **로그인 성공 후**:  
+   ```python
+   st.experimental_set_query_params()
+   st.experimental_rerun()
